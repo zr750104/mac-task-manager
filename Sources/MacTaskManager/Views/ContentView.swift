@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum Panel: String, CaseIterable, Identifiable, Hashable {
-    case overview, cpu, memory, gpu, temperature, disk, network, processes, startup
+    case overview, cpu, memory, gpu, npu, temperature, disk, network, processes, startup
 
     var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum Panel: String, CaseIterable, Identifiable, Hashable {
         case .cpu: return "CPU"
         case .memory: return "メモリ"
         case .gpu: return "GPU"
+        case .npu: return "NPU"
         case .temperature: return "温度・電力"
         case .disk: return "ディスク"
         case .network: return "ネットワーク"
@@ -25,6 +26,7 @@ enum Panel: String, CaseIterable, Identifiable, Hashable {
         case .cpu: return "cpu"
         case .memory: return "memorychip"
         case .gpu: return "cube.transparent"
+        case .npu: return "brain"
         case .temperature: return "thermometer.medium"
         case .disk: return "internaldrive"
         case .network: return "network"
@@ -39,6 +41,7 @@ enum Panel: String, CaseIterable, Identifiable, Hashable {
         case .cpu: return Palette.cpu
         case .memory: return Palette.memory
         case .gpu: return Palette.gpu
+        case .npu: return Palette.efficiencyCore
         case .temperature: return Palette.temperature
         case .disk: return Palette.disk
         case .network: return Palette.network
@@ -100,6 +103,7 @@ struct ContentView: View {
         case .cpu: CPUPanel()
         case .memory: MemoryPanel()
         case .gpu: GPUPanel()
+        case .npu: NPUPanel()
         case .temperature: TemperaturePanel()
         case .disk: DiskPanel()
         case .network: NetworkPanel()
@@ -195,6 +199,7 @@ private struct SidebarRow: View {
         case .memory:
             return "\(Fmt.bytes(snapshot.memory.used)) / \(Fmt.bytes(snapshot.memory.total))"
         case .gpu: return snapshot.gpu.available ? Fmt.percent(snapshot.gpu.utilization, decimals: 0) : "—"
+        case .npu: return Fmt.percent(snapshot.neuralEngine.utilization, decimals: 0)
         case .temperature:
             return engine.temperature.available
                 ? String(format: "%.1f ℃", engine.temperature.socMax) : "—"
@@ -214,6 +219,9 @@ private struct SidebarRow: View {
             MiniChart(values: engine.memoryHistory.padded, maxValue: 1, color: Palette.memory)
         case .gpu:
             MiniChart(values: engine.gpuHistory.padded, maxValue: 1, color: Palette.gpu)
+        case .npu:
+            MiniChart(values: engine.neuralEngineUtilizationHistory.padded, maxValue: 1,
+                      color: Palette.efficiencyCore)
         case .temperature:
             MiniChart(values: engine.temperatureHistory.padded, maxValue: 110,
                       color: Palette.heat(engine.temperature.socMax))

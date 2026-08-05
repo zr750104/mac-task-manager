@@ -138,7 +138,7 @@ struct OverviewPanel: View {
         // Neural Engine（NPU）
         let ane = snapshot.neuralEngine
         list.append(Card(
-            panel: .gpu, title: "NPU (Neural Engine)", icon: "brain", color: Palette.efficiencyCore,
+            panel: .npu, title: "NPU (Neural Engine)", icon: "brain", color: Palette.efficiencyCore,
             value: Fmt.percent(ane.utilization),
             details: [("状態", ane.stateLabel),
                       ("消費電力", String(format: "%.2fW", ane.watts)),

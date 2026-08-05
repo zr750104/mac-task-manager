@@ -34,7 +34,8 @@ xattr -dr com.apple.quarantine "/Applications/タスクマネージャー.app"
 | **概要** | CPU / メモリ / GPU / 温度 / 消費電力 / NPU / ディスク / ネットワーク / 上位プロセス / ストレージを 1 画面に集約 |
 | **CPU** | 全体使用率、P/E コア別の使用率と推移、論理コアの個別グラフ、ロードアベレージ、チップ温度、CPU 消費電力 |
 | **メモリ** | 内訳（アプリ / 確保済み / 圧縮 / キャッシュ）、メモリプレッシャー、スワップ、ページング統計、**メモリ解放** |
-| **GPU** | デバイス / レンダラ / タイラの使用率、GPU が確保しているメモリ、GPU 消費電力、**Neural Engine (NPU) の稼働状況** |
+| **GPU** | デバイス / レンダラ / タイラの使用率、GPU が確保しているメモリ、GPU 消費電力 |
+| **NPU** | Neural Engine の使用率・消費電力・推論リクエスト数、GPU との比較 |
 | **温度・電力** | チップ温度・SSD 温度・センサー別一覧、CPU/GPU/メモリの消費電力、バッテリー（ノート型のみ） |
 | **ディスク** | 読み書き速度、IOPS、**物理ディスク別の I/O（外付けを含む）**、各ボリュームの空き容量 |
 | **ネットワーク** | 送受信速度、パケット数、インターフェース別 |
@@ -144,7 +145,7 @@ Sources/MacTaskManager/
 │   ├── GPUMonitor.swift         IOAccelerator の PerformanceStatistics
 │   ├── TemperatureMonitor.swift IOKit HID の温度センサー
 │   ├── PowerMonitor.swift       IOReport の Energy Model
-│   ├── NeuralEngineMonitor.swift ANE の電力と割り込み回数
+│   ├── NeuralEngineMonitor.swift ANE の電力と割り込み回数（NPU 画面）
 │   ├── MemoryReclaimer.swift    purge（管理者権限つき）
 │   ├── BatteryMonitor.swift     AppleSmartBattery
 │   ├── NetworkMonitor.swift     getifaddrs の if_data
@@ -226,6 +227,9 @@ DRAM   1.12 W
 ---
 
 ## Neural Engine（NPU）について（実測で特定）
+
+NPU は GPU と混同されやすいため、**独立した画面**にしています。
+NPU 画面には GPU 使用率と並べた比較バーも置いてあり、別々に動くことがひと目で分かります。
 
 ### GPU 使用率は NPU の使用率ではありません
 
