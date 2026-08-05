@@ -10,6 +10,10 @@ on:
 jobs:
   build:
     runs-on: macos-15
+    # Release を作るには書き込み権限が要る。
+    # 既定の GITHUB_TOKEN は読み取りのみなので明示する。
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
