@@ -139,13 +139,13 @@ struct OverviewPanel: View {
         let ane = snapshot.neuralEngine
         list.append(Card(
             panel: .gpu, title: "NPU (Neural Engine)", icon: "brain", color: Palette.efficiencyCore,
-            value: String(format: "%.2f W", ane.watts),
+            value: Fmt.percent(ane.utilization),
             details: [("状態", ane.stateLabel),
-                      ("使用率の目安", Fmt.percent(ane.utilization, decimals: 0)),
+                      ("消費電力", String(format: "%.2fW", ane.watts)),
                       ("推論/秒", Fmt.count(Int(ane.operationsPerSecond)))],
-            caption: String(format: "観測した最大 %.2f W に対する比率で表示", ane.referencePeak),
-            content: AnyView(MetricChart(values: engine.neuralEngineHistory.padded, maxValue: nil,
-                                         color: Palette.efficiencyCore,
+            caption: String(format: "基準 %.2f W に対する比率 · GPU 使用率とは別物です", ane.referencePeak),
+            content: AnyView(MetricChart(values: engine.neuralEngineUtilizationHistory.padded,
+                                         maxValue: 1, color: Palette.efficiencyCore,
                                          gridRows: 2, gridColumns: 4))))
 
         // ディスク

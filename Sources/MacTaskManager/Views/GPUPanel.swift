@@ -84,31 +84,40 @@ struct GPUPanel: View {
                         .fill(ane.isActive ? Palette.efficiencyCore.opacity(0.3)
                               : Color.secondary.opacity(0.2)))
                 Spacer()
-                Text(String(format: "%.2f W", ane.watts))
-                    .font(.title3.weight(.semibold))
+                Text(Fmt.percent(ane.utilization))
+                    .font(.title.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(ane.isActive ? Palette.efficiencyCore : .secondary)
             }
 
-            MetricChart(values: engine.neuralEngineHistory.padded, maxValue: nil,
+            // CPU / GPU と同じく 0〜100% の目盛りで推移を出す。
+            MetricChart(values: engine.neuralEngineUtilizationHistory.padded, maxValue: 1,
                         color: Palette.efficiencyCore)
-                .frame(height: 90)
+                .frame(height: 110)
 
             TileGrid(items: [
+                .init("使用率", Fmt.percent(ane.utilization),
+                      caption: String(format: "基準 %.2f W に対する比率", ane.referencePeak),
+                      color: Palette.efficiencyCore, emphasized: true),
                 .init("消費電力", String(format: "%.2f W", ane.watts),
                       caption: "動いていなければ 0 に近い値",
-                      color: Palette.efficiencyCore, emphasized: true),
-                .init("使用率の目安", Fmt.percent(ane.utilization),
-                      caption: String(format: "観測した最大 %.2f W に対する比率", ane.referencePeak),
                       color: Palette.efficiencyCore, emphasized: true),
                 .init("推論リクエスト/秒", Fmt.count(Int(ane.operationsPerSecond)),
                       caption: "ANE からの割り込み回数", emphasized: true)
             ], minimumWidth: 160)
 
-            Text("Apple は GPU の「デバイス使用率」に相当する NPU の稼働率を公開していません。ここでは実機で Vision の画像分類を実行し、確実に反応することを確認できた消費電力（アイドル 0.005 W → 負荷時 1.52 W）と割り込み回数を表示しています。使用率は起動後に観測した最大電力に対する比率で、絶対的な稼働率ではありません。")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 8) {
+                Text("Apple は GPU の「デバイス使用率」に相当する NPU の稼働率を公開していません（root で powermetrics を動かしても電力しか出ません）。そのため使用率は消費電力を基準値で割って算出しています。基準の 2.0 W は、この Mac で Vision の画像分類を 8 スレッド並列で回したときの実測ピークです。これを超える電力を観測した場合は基準を自動で引き上げます。\n\nGPU 使用率は NPU の使用率ではありません。実測では NPU を全力で動かしている間も GPU 使用率は 22.3% → 25.2% とほとんど変化しませんでした。両者は別のハードウェアです。")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button("基準を戻す") {
+                    NeuralEngineMonitor.resetReference()
+                }
+                .controlSize(.small)
+                .help("使用率の基準を実測の既定値 2.0 W に戻します")
+            }
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.045)))

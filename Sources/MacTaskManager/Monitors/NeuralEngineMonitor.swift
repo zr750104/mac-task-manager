@@ -6,9 +6,9 @@ struct NeuralEngineSample: Sendable {
     var watts: Double = 0
     /// ANE からの割り込み回数（毎秒）。推論の実行回数の目安になる。
     var operationsPerSecond: Double = 0
-    /// これまでに観測した最大電力。使用率の分母に使う。
+    /// 使用率の分母に使う基準電力（W）
     var referencePeak: Double = 0
-    /// 観測した最大電力に対する比率（0〜1）
+    /// 基準電力に対する比率（0〜1）。CPU 使用率と同じ感覚で読める値。
     var utilization: Double = 0
 
     /// 目に見えるレベルで動いているか
@@ -19,14 +19,19 @@ struct NeuralEngineSample: Sendable {
 
 /// Neural Engine（NPU）の稼働状況を取得する。
 ///
-/// Apple は GPU の "Device Utilization %" に相当する **ANE の使用率を公開していない**。
+/// Apple は GPU の "Device Utilization %" に相当する **ANE の使用率を公開していない**
+/// （`powermetrics` を root で動かしても電力しか出ない）。
 /// そこで実機で Vision の画像分類を回して反応するチャンネルを調べ、
 /// 次の 2 つが確実に動くことを確認したうえで指標にしている:
 ///
-/// - `Energy Model` の `ANE`（消費電力）: アイドル 0.005W → 負荷時 1.52W と 300 倍以上変化
+/// - `Energy Model` の `ANE`（消費電力）: アイドル 0.000W → 負荷時 2.0W
 /// - `Interrupt Statistics (by index)` の `ane 0` 割り込み回数: 8 秒あたり 3 回 → 9,642 回
 ///
-/// 使用率は「観測した最大電力に対する比率」で、絶対的な稼働率ではない。
+/// 使用率は消費電力を基準電力で割って求めている。ハードウェアが報告する
+/// 稼働率そのものではないが、CPU 使用率と同じ感覚で読める値になる。
+///
+/// なお **GPU 使用率は NPU の使用率ではない**。実測でも NPU を全力で回している間、
+/// GPU 使用率は 22.3% → 25.2% とほぼ動かなかった（GPU と ANE は別のハードウェア）。
 final class NeuralEngineMonitor {
 
     private typealias CopyChannelsInGroup =
@@ -72,8 +77,22 @@ final class NeuralEngineMonitor {
     private var previousSample: CFDictionary?
     private var previousTime: Date?
     private var isUnavailable = false
-    /// 起動してからの最大電力。低すぎる値で割ると常に 100% になるので下限を設ける。
-    private var peakWatts: Double = 0.5
+
+    /// 使用率の分母。M4 Mac mini で Vision の画像分類を 8 スレッド並列で回したときの
+    /// 実測ピークが 2.0 W だったので、これを既定値にしている。
+    /// より重い推論でこれを超えたら基準を引き上げ、次回起動時も引き継ぐ。
+    private static let defaultReferenceWatts: Double = 2.0
+    private static let referenceKey = "neuralEngineReferenceWatts"
+
+    private var referenceWatts: Double = {
+        let stored = UserDefaults.standard.double(forKey: NeuralEngineMonitor.referenceKey)
+        return max(stored, NeuralEngineMonitor.defaultReferenceWatts)
+    }()
+
+    /// 使用率の基準を実測の既定値に戻す。
+    static func resetReference() {
+        UserDefaults.standard.removeObject(forKey: referenceKey)
+    }
 
     /// - Parameter watts: PowerMonitor が取得した ANE の消費電力
     func sample(watts: Double) -> NeuralEngineSample {
@@ -90,9 +109,14 @@ final class NeuralEngineMonitor {
 
         // 電力が取れていれば ANE の情報として意味がある。
         result.available = watts > 0 || result.operationsPerSecond > 0 || !isUnavailable
-        peakWatts = max(peakWatts, result.watts)
-        result.referencePeak = peakWatts
-        result.utilization = peakWatts > 0 ? min(1, result.watts / peakWatts) : 0
+
+        // 基準を超える電力を観測したら、そこまで引き上げて記憶する。
+        if result.watts > referenceWatts {
+            referenceWatts = result.watts
+            UserDefaults.standard.set(referenceWatts, forKey: Self.referenceKey)
+        }
+        result.referencePeak = referenceWatts
+        result.utilization = referenceWatts > 0 ? min(1, result.watts / referenceWatts) : 0
         return result
     }
 

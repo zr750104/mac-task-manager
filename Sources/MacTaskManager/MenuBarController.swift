@@ -104,7 +104,7 @@ final class MenuBarController: NSObject {
                 ? Fmt.percent(snapshot.gpu.utilization, decimals: 0) : "—"
         case .neuralEngine:
             return snapshot.neuralEngine.available
-                ? String(format: "%.1fW", snapshot.neuralEngine.watts) : "—"
+                ? Fmt.percent(snapshot.neuralEngine.utilization, decimals: 0) : "—"
         case .temperature:
             return engine.temperature.available
                 ? String(format: "%.0f℃", engine.temperature.socMax) : "—"
@@ -173,7 +173,8 @@ final class MenuBarController: NSObject {
         valueItems[.gpu]?.title = snapshot.gpu.available
             ? "GPU  \(Fmt.percent(snapshot.gpu.utilization))" : "GPU  —"
         valueItems[.neuralEngine]?.title = snapshot.neuralEngine.available
-            ? String(format: "Neural Engine  %.2f W（%@）",
+            ? String(format: "Neural Engine  %@（%.2f W・%@）",
+                     Fmt.percent(snapshot.neuralEngine.utilization),
                      snapshot.neuralEngine.watts, snapshot.neuralEngine.stateLabel)
             : "Neural Engine  —"
         valueItems[.temperature]?.title = engine.temperature.available

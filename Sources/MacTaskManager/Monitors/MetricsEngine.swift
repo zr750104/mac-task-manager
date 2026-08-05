@@ -111,6 +111,8 @@ final class MetricsEngine: ObservableObject {
     @Published private(set) var powerHistory = History(capacity: historyLength)
     /// Neural Engine の消費電力（W）
     @Published private(set) var neuralEngineHistory = History(capacity: historyLength)
+    /// Neural Engine の使用率（0〜1）
+    @Published private(set) var neuralEngineUtilizationHistory = History(capacity: historyLength)
 
     @Published var refreshRate: RefreshRate = .normal {
         didSet { restartTimer() }
@@ -224,6 +226,7 @@ final class MetricsEngine: ObservableObject {
             powerHistory.append(new.power.cpu + new.power.gpu)
         }
         neuralEngineHistory.append(new.neuralEngine.watts)
+        neuralEngineUtilizationHistory.append(new.neuralEngine.utilization)
     }
 
     /// 概要画面に出す上位プロセス。
