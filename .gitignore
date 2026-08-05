@@ -1,0 +1,19 @@
+# ビルド成果物
+.build/
+build/
+*.o
+*.dSYM/
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+.swiftpm/
+
+# macOS
+.DS_Store
+._*
+
+# 作業用
+*.log

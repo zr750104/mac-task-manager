@@ -1,0 +1,40 @@
+name: リリース用ビルド
+
+# タグ v1.0.0 のように push されたら .app を固めて Release に添付する。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: バージョンを確認
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PLIST_VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Resources/Info.plist)
+          echo "タグ: $TAG / Info.plist: $PLIST_VERSION"
+          if [ -n "$TAG" ] && [ "$TAG" != "$PLIST_VERSION" ]; then
+            echo "::error::タグ($TAG) と Info.plist($PLIST_VERSION) のバージョンが一致しません"
+            exit 1
+          fi
+
+      - name: ビルド
+        run: ./build.sh
+
+      - name: zip に固める
+        run: |
+          cd build
+          zip -r -y "../タスクマネージャー-${GITHUB_REF_NAME}.zip" "タスクマネージャー.app"
+
+      - name: Release に添付
+        uses: softprops/action-gh-release@v2
+        with:
+          files: タスクマネージャー-*.zip
+          body_path: CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
