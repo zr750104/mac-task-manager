@@ -213,6 +213,10 @@ struct CoreGrid: View {
     var histories: [History]
     var current: [Double]
     var clusters: [CoreCluster]
+    /// 1 コアぶんのグラフの高さ。主役として出すときは大きくする。
+    var chartHeight: CGFloat = 40
+    /// 1 コアぶんの最小幅。大きくすると 1 行あたりの数が減る。
+    var minimumWidth: CGFloat = 130
 
     private func color(for index: Int) -> Color {
         guard let cluster = clusters.first(where: { $0.range.contains(index) }) else { return Palette.cpu }
@@ -226,24 +230,25 @@ struct CoreGrid: View {
     }
 
     var body: some View {
-        let columns = [GridItem(.adaptive(minimum: 130, maximum: 240), spacing: 8)]
+        let isLarge = chartHeight >= 60
+        let columns = [GridItem(.adaptive(minimum: minimumWidth, maximum: 320), spacing: 8)]
         LazyVGrid(columns: columns, spacing: 8) {
             ForEach(histories.indices, id: \.self) { index in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 4) {
                         Text(label(for: index))
-                            .font(.caption2.weight(.semibold))
+                            .font(isLarge ? .callout.weight(.semibold) : .caption2.weight(.semibold))
                             .foregroundStyle(color(for: index))
                         Spacer(minLength: 0)
                         Text(Fmt.percent(index < current.count ? current[index] : 0, decimals: 0))
-                            .font(.caption2)
+                            .font(isLarge ? .callout.weight(.medium) : .caption2)
                             .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(isLarge ? .primary : .secondary)
                     }
                     MetricChart(values: histories[index].padded, maxValue: 1,
-                                color: color(for: index), showsGrid: false,
-                                gridRows: 2, gridColumns: 3, lineWidth: 1)
-                        .frame(height: 40)
+                                color: color(for: index), showsGrid: isLarge,
+                                gridRows: 2, gridColumns: 3, lineWidth: isLarge ? 1.5 : 1)
+                        .frame(height: chartHeight)
                 }
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.04)))

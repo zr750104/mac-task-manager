@@ -1,8 +1,24 @@
 import SwiftUI
 
+/// CPU のグラフ表示。Windows のタスクマネージャーと同じく、
+/// 全体を 1 本で見るか、論理コアごとに分けて見るかを切り替えられる。
+enum CPUGraphMode: String, CaseIterable, Identifiable {
+    case total
+    case perCore
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .total: return "全体"
+        case .perCore: return "コア別"
+        }
+    }
+}
+
 struct CPUPanel: View {
     @EnvironmentObject private var engine: MetricsEngine
-    @State private var showsPerCore = true
+    /// 選んだ表示は次回起動時も引き継ぐ。
+    @AppStorage("cpuGraphMode") private var graphMode: CPUGraphMode = .total
 
     var body: some View {
         let cpu = engine.snapshot.cpu
@@ -15,15 +31,41 @@ struct CPUPanel: View {
                             value: Fmt.percent(cpu.total),
                             valueColor: Palette.cpu)
 
-                MetricChart(values: engine.cpuHistory.padded, maxValue: 1, color: Palette.cpu)
-                    .frame(height: 170)
-                    .overlay(alignment: .topLeading) {
-                        Text("100%").font(.caption2).foregroundStyle(.tertiary).padding(4)
+                HStack {
+                    Picker("表示", selection: $graphMode) {
+                        ForEach(CPUGraphMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
                     }
-                    .overlay(alignment: .bottomTrailing) {
-                        Text("直近 \(historySeconds) 秒").font(.caption2)
-                            .foregroundStyle(.tertiary).padding(4)
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 160)
+
+                    if graphMode == .perCore {
+                        Text("E コアと P コアで色を分けています")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
+                    Spacer()
+                    Text("直近 \(historySeconds) 秒")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                switch graphMode {
+                case .total:
+                    MetricChart(values: engine.cpuHistory.padded, maxValue: 1, color: Palette.cpu)
+                        .frame(height: 170)
+                        .overlay(alignment: .topLeading) {
+                            Text("100%").font(.caption2).foregroundStyle(.tertiary).padding(4)
+                        }
+                case .perCore:
+                    CoreGrid(histories: engine.coreHistories,
+                             current: cpu.perCore,
+                             clusters: info.clusters,
+                             chartHeight: 78,
+                             minimumWidth: 190)
+                }
 
                 TileGrid(items: [
                     .init("全体", Fmt.percent(cpu.total),
@@ -82,13 +124,21 @@ struct CPUPanel: View {
                     .frame(height: 130)
                 }
 
-                DisclosureGroup(isExpanded: $showsPerCore) {
-                    CoreGrid(histories: engine.coreHistories,
-                             current: cpu.perCore,
-                             clusters: info.clusters)
-                        .padding(.top, 8)
-                } label: {
-                    Text("論理コアごとの使用率（\(info.logicalCores) コア）").font(.headline)
+                // 「全体」表示のときだけ、コア別を小さく併記する。
+                // 「コア別」表示では上部がすでにコア別なので重複させない。
+                if graphMode == .total {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("論理コアごとの使用率（\(info.logicalCores) コア）").font(.headline)
+                            Spacer()
+                            Button("大きく見る") { graphMode = .perCore }
+                                .buttonStyle(.link)
+                                .font(.caption)
+                        }
+                        CoreGrid(histories: engine.coreHistories,
+                                 current: cpu.perCore,
+                                 clusters: info.clusters)
+                    }
                 }
             }
         }
