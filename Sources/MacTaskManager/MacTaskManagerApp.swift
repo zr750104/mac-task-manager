@@ -74,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ScreenshotExporter.run(directory: directory, engine: .shared, settings: .shared)
             return
         }
+        StandardMenu.install()
         UpdateChecker.shared.checkOnLaunchIfNeeded()
     }
 
