@@ -37,6 +37,16 @@ final class AppSettings: ObservableObject {
     /// 表示中の画面。書き出し機能から切り替えられるようにここで持つ。
     @Published var selection: Panel = .overview
 
+    /// 計測の更新間隔。
+    /// MetricsEngine 側に置くと、毎秒の計測更新でメニューが作り直されてしまうため、
+    /// 変化の少ない設定側で持つ。
+    @Published var refreshRate: RefreshRate {
+        didSet {
+            defaults.set(refreshRate.rawValue, forKey: Keys.refreshRate)
+            MetricsEngine.shared.refreshRateDidChange()
+        }
+    }
+
     @Published var isAlwaysOnTop: Bool {
         didSet {
             defaults.set(isAlwaysOnTop, forKey: Keys.alwaysOnTop)
@@ -58,6 +68,7 @@ final class AppSettings: ObservableObject {
         static let alwaysOnTop = "isAlwaysOnTop"
         static let menuBarItem = "showsMenuBarItem"
         static let menuBarMetrics = "menuBarMetrics"
+        static let refreshRate = "refreshRate"
     }
 
     private let defaults = UserDefaults.standard
@@ -68,6 +79,8 @@ final class AppSettings: ObservableObject {
             Keys.menuBarItem: true,
             Keys.alwaysOnTop: false
         ])
+        let storedRate = defaults.double(forKey: Keys.refreshRate)
+        refreshRate = RefreshRate(rawValue: storedRate) ?? .normal
         isAlwaysOnTop = defaults.bool(forKey: Keys.alwaysOnTop)
         showsMenuBarItem = defaults.bool(forKey: Keys.menuBarItem)
         if let stored = defaults.stringArray(forKey: Keys.menuBarMetrics) {

@@ -5,9 +5,14 @@ import AppKit
 struct MacTaskManagerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     // メニューバー常駐からも同じ計測結果を使うため、生成箇所を一本化している。
-    @StateObject private var engine = MetricsEngine.shared
+    //
+    // engine と updates は @StateObject にしない。
+    // App が監視すると、毎秒の計測更新のたびに body が再評価され、
+    // .commands（メニュー）ごと作り直されてしまうため。
+    // 画面側は @EnvironmentObject で受け取って各自が監視する。
+    private let engine = MetricsEngine.shared
+    private let updates = UpdateChecker.shared
     @StateObject private var settings = AppSettings.shared
-    @StateObject private var updates = UpdateChecker.shared
 
     var body: some Scene {
         WindowGroup("タスクマネージャー") {
@@ -30,7 +35,7 @@ struct MacTaskManagerApp: App {
             }
             // 標準の「表示」メニューと名前が衝突しないようにする。
             CommandMenu("モニター") {
-                Picker("更新間隔", selection: $engine.refreshRate) {
+                Picker("更新間隔", selection: $settings.refreshRate) {
                     ForEach(RefreshRate.allCases) { rate in
                         Text(rate.label).tag(rate)
                     }

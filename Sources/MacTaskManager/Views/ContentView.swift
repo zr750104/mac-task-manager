@@ -116,6 +116,7 @@ struct ContentView: View {
 /// ツールバー右側の更新間隔ピッカーと稼働時間。
 private struct StatusToolbar: View {
     @EnvironmentObject private var engine: MetricsEngine
+    @EnvironmentObject private var settings: AppSettings
     @State private var now = Date()
 
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -132,7 +133,7 @@ private struct StatusToolbar: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
             UpdateStatusView()
-            Picker("更新間隔", selection: $engine.refreshRate) {
+            Picker("更新間隔", selection: $settings.refreshRate) {
                 ForEach(RefreshRate.allCases) { rate in
                     Text(rate.shortLabel).tag(rate)
                 }

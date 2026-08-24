@@ -8,9 +8,25 @@ import AppKit
 /// フルスクリーン・タブ操作・整列などが入らない。
 /// そこで起動後に AppKit 側で組み直している。
 @MainActor
-enum StandardMenu {
+final class StandardMenu: NSObject, NSMenuDelegate {
 
+    static let shared = StandardMenu()
     private static var observer: NSObjectProtocol?
+
+    /// SwiftUI などが元々設定していた delegate。動作を奪わないよう引き継ぐ。
+    private weak var previousDelegate: NSMenuDelegate?
+
+    /// メニューバーが開かれる直前に呼ばれる。
+    /// SwiftUI に作り直されていたら、ここで当て直す。
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        previousDelegate?.menuNeedsUpdate?(menu)
+        StandardMenu.reapplyIfNeeded()
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        previousDelegate?.menuWillOpen?(menu)
+        StandardMenu.reapplyIfNeeded()
+    }
 
     /// SwiftUI がメニューを作り終えてから適用する。
     /// SwiftUI は状態が変わるとメニューを組み直すことがあるため、
@@ -25,6 +41,12 @@ enum StandardMenu {
             object: nil, queue: .main) { _ in
                 Task { @MainActor in reapplyIfNeeded() }
             }
+        // メニューバー本体の delegate になっておくと、
+        // どのメニューを開くときでも直前に点検できる。
+        if let main = NSApp.mainMenu, main.delegate !== shared {
+            shared.previousDelegate = main.delegate
+            main.delegate = shared
+        }
     }
 
     /// SwiftUI に作り直されて標準項目が消えていたら当て直す。
@@ -115,6 +137,8 @@ enum StandardMenu {
 
         add(menu, "すべてを手前に移動", "arrangeInFront:")
 
+        // ウインドウメニュー自体には delegate を付けない。
+        // AppKit がウインドウ一覧を管理しているため、横取りすると壊れる。
         // AppKit にウインドウ一覧の追加を任せる。
         NSApp.windowsMenu = menu
     }

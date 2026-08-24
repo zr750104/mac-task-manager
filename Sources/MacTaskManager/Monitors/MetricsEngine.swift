@@ -114,9 +114,13 @@ final class MetricsEngine: ObservableObject {
     /// Neural Engine の使用率（0〜1）
     @Published private(set) var neuralEngineUtilizationHistory = History(capacity: historyLength)
 
-    @Published var refreshRate: RefreshRate = .normal {
-        didSet { restartTimer() }
-    }
+    /// 更新間隔は AppSettings が保持する。
+    /// ここで @Published にすると毎秒の計測更新でメニューが作り直されてしまう。
+    var refreshRate: RefreshRate { AppSettings.shared.refreshRate }
+
+    /// 設定側で間隔が変わったら呼ばれる。
+    func refreshRateDidChange() { restartTimer() }
+
     /// プロセス一覧はコストが高いので、表示中のときだけ更新する。
     @Published var isProcessTabVisible = false
     /// 起動項目も plist の走査が必要なので、表示中のときだけ更新する。
