@@ -23,6 +23,21 @@ enum Fmt {
         bytes(bytesPerSec, decimals: bytesPerSec < 1024 * 1024 ? 0 : 1) + "/s"
     }
 
+    /// メニューバー向けの短い転送速度。「1.2M」「340K」のように単位を 1 文字にする。
+    /// 幅が限られるため小数は 1 桁までにとどめる。
+    static func compactRate(_ bytesPerSec: Double) -> String {
+        let v = max(0, bytesPerSec)
+        if v < 1000 { return String(format: "%.0f", v) }
+        let units = ["K", "M", "G", "T"]
+        var value = v / 1024
+        var unit = 0
+        while value >= 1024, unit < units.count - 1 {
+            value /= 1024
+            unit += 1
+        }
+        return String(format: value < 10 ? "%.1f%@" : "%.0f%@", value, units[unit])
+    }
+
     static func percent(_ ratio: Double, decimals: Int = 1) -> String {
         String(format: "%.\(decimals)f%%", ratio * 100)
     }

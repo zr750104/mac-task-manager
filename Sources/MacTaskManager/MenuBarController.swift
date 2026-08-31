@@ -83,8 +83,11 @@ final class MenuBarController: NSObject {
             if title.length > 0 {
                 title.append(NSAttributedString(string: "  ", attributes: valueAttributes))
             }
-            title.append(NSAttributedString(string: metric.shortLabel + " ",
-                                            attributes: labelAttributes))
+            // ラベルを持たない項目（ネットワーク）は数値だけを出す。
+            if !metric.shortLabel.isEmpty {
+                title.append(NSAttributedString(string: metric.shortLabel + " ",
+                                                attributes: labelAttributes))
+            }
             title.append(NSAttributedString(string: value(for: metric),
                                             attributes: valueAttributes))
         }
@@ -105,6 +108,11 @@ final class MenuBarController: NSObject {
         case .neuralEngine:
             return snapshot.neuralEngine.available
                 ? Fmt.percent(snapshot.neuralEngine.utilization, decimals: 0) : "—"
+        // 矢印を数値と同じ大きさで出すため、値の側に含める。
+        case .networkDown:
+            return "↓" + Fmt.compactRate(snapshot.network.downloadRate)
+        case .networkUp:
+            return "↑" + Fmt.compactRate(snapshot.network.uploadRate)
         case .temperature:
             return engine.temperature.available
                 ? String(format: "%.0f℃", engine.temperature.socMax) : "—"
@@ -177,6 +185,10 @@ final class MenuBarController: NSObject {
                      Fmt.percent(snapshot.neuralEngine.utilization),
                      snapshot.neuralEngine.watts, snapshot.neuralEngine.stateLabel)
             : "Neural Engine  —"
+        valueItems[.networkDown]?.title =
+            "ネットワーク 受信  \(Fmt.rate(snapshot.network.downloadRate))"
+        valueItems[.networkUp]?.title =
+            "ネットワーク 送信  \(Fmt.rate(snapshot.network.uploadRate))"
         valueItems[.temperature]?.title = engine.temperature.available
             ? String(format: "温度  %.1f ℃", engine.temperature.socMax) : "温度  —"
         alwaysOnTopItem?.state = settings.isAlwaysOnTop ? .on : .off

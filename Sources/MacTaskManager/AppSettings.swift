@@ -3,7 +3,7 @@ import AppKit
 
 /// メニューバーに出す項目。
 enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
-    case cpu, memory, gpu, neuralEngine, temperature
+    case cpu, memory, gpu, neuralEngine, networkDown, networkUp, temperature
 
     var id: String { rawValue }
 
@@ -13,6 +13,8 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
         case .memory: return "メモリ"
         case .gpu: return "GPU"
         case .neuralEngine: return "Neural Engine"
+        case .networkDown: return "ネットワーク 受信"
+        case .networkUp: return "ネットワーク 送信"
         case .temperature: return "温度"
         }
     }
@@ -24,6 +26,8 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
         case .memory: return "MEM"
         case .gpu: return "GPU"
         case .neuralEngine: return "NPU"
+        // ネットワークは矢印を数値側に付けるため、ラベルは持たない。
+        case .networkDown, .networkUp: return ""
         case .temperature: return "TMP"
         }
     }
@@ -69,6 +73,7 @@ final class AppSettings: ObservableObject {
         static let menuBarItem = "showsMenuBarItem"
         static let menuBarMetrics = "menuBarMetrics"
         static let refreshRate = "refreshRate"
+        static let addedNetworkMetrics = "didAddNetworkMetricsToMenuBar"
     }
 
     private let defaults = UserDefaults.standard
@@ -87,6 +92,15 @@ final class AppSettings: ObservableObject {
             menuBarMetrics = Set(stored.compactMap(MenuBarMetric.init(rawValue:)))
         } else {
             menuBarMetrics = [.cpu, .temperature]
+        }
+
+        // ネットワーク表示を追加したので、一度だけ既定で有効にする。
+        // 以後はユーザーの選択をそのまま尊重する（オフにしても戻らない）。
+        if !defaults.bool(forKey: Keys.addedNetworkMetrics) {
+            defaults.set(true, forKey: Keys.addedNetworkMetrics)
+            menuBarMetrics.insert(.networkDown)
+            menuBarMetrics.insert(.networkUp)
+            defaults.set(menuBarMetrics.map(\.rawValue), forKey: Keys.menuBarMetrics)
         }
     }
 
