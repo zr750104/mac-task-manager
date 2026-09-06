@@ -2,6 +2,8 @@ import SwiftUI
 
 struct MemoryPanel: View {
     @EnvironmentObject private var engine: MetricsEngine
+    /// 「プロセス一覧へ」を押したときの遷移。
+    var onShowProcesses: (() -> Void)?
 
     @State private var isConfirmingPurge = false
     @State private var isPurging = false
@@ -57,6 +59,8 @@ struct MemoryPanel: View {
                           color: memory.swapUsed > 0 ? Palette.gpu : .primary, emphasized: true)
                 ], minimumWidth: 170)
 
+                appBreakdown
+
                 // プレッシャーの推移
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -89,6 +93,86 @@ struct MemoryPanel: View {
                 }
             }
         }
+    }
+
+    // MARK: - アプリ別の内訳
+
+    /// どのアプリがどれだけメモリを使っているか。
+    /// Chrome や Claude のようにヘルパープロセスへ分かれるアプリは 1 つにまとめている。
+    private var appBreakdown: some View {
+        let apps = engine.memoryByApp()
+        let largest = apps.first?.memory ?? 1
+        let total = engine.snapshot.memory.total
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("アプリ別の使用量").font(.headline)
+                Text("ヘルパープロセスは親アプリにまとめています")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Button("プロセス一覧へ") { onShowProcesses?() }
+                    .buttonStyle(.link)
+                    .font(.caption)
+            }
+
+            if apps.isEmpty {
+                Text("収集中…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            } else {
+                VStack(spacing: 5) {
+                    ForEach(apps) { app in
+                        HStack(spacing: 10) {
+                            Image(systemName: app.isApp ? "app.fill" : "gearshape.fill")
+                                .font(.caption2)
+                                .foregroundStyle(app.isApp ? Palette.memory : .secondary)
+                                .frame(width: 14)
+
+                            Text(app.name)
+                                .font(.callout)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(width: 190, alignment: .leading)
+
+                            if app.processCount > 1 {
+                                Text("\(app.processCount)")
+                                    .font(.caption2)
+                                    .monospacedDigit()
+                                    .padding(.horizontal, 4).padding(.vertical, 1)
+                                    .background(RoundedRectangle(cornerRadius: 3)
+                                        .fill(Color.primary.opacity(0.12)))
+                                    .help("\(app.processCount) 個のプロセスの合計")
+                            }
+
+                            UsageBar(ratio: Double(app.memory) / Double(largest),
+                                     color: app.isApp ? Palette.memory : .gray, height: 8)
+
+                            Text(Fmt.bytes(app.memory))
+                                .font(.callout)
+                                .monospacedDigit()
+                                .frame(width: 76, alignment: .trailing)
+
+                            Text(total > 0 ? Fmt.percent(Double(app.memory) / Double(total), decimals: 0) : "—")
+                                .font(.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(width: 42, alignment: .trailing)
+                        }
+                    }
+                }
+
+                Text("割合は物理メモリ \(Fmt.bytes(total)) に対するものです。共有ライブラリなど複数のプロセスで共通して使われる領域はそれぞれに計上されるため、合計は物理メモリを超えることがあります（アクティビティモニタと同じ数え方です）。")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.045)))
     }
 
     // MARK: - メモリ解放

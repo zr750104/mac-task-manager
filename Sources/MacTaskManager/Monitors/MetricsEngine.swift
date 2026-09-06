@@ -127,6 +127,8 @@ final class MetricsEngine: ObservableObject {
     @Published var isStartupTabVisible = false
     /// 概要画面では上位プロセスだけ使うので、粗い間隔で収集する。
     @Published var isOverviewVisible = false
+    /// メモリ画面でもアプリ別の内訳を出すため、粗い間隔で収集する。
+    @Published var isMemoryTabVisible = false
 
     let info = SystemInfo.current
     private let sampler = Sampler()
@@ -200,7 +202,7 @@ final class MetricsEngine: ObservableObject {
         // プロセス一覧は最短でも 2 秒間隔に間引く。
         // 概要画面でも上位プロセスを出すが、あちらは一覧を出さないので 5 秒で十分。
         let processInterval = isProcessTabVisible ? max(2.0, refreshRate.rawValue) : 5.0
-        if isProcessTabVisible || isOverviewVisible,
+        if isProcessTabVisible || isOverviewVisible || isMemoryTabVisible,
            Date().timeIntervalSince(lastProcessUpdate) >= processInterval {
             lastProcessUpdate = Date()
             let rows = await sampler.collectProcesses()
@@ -231,6 +233,40 @@ final class MetricsEngine: ObservableObject {
         }
         neuralEngineHistory.append(new.neuralEngine.watts)
         neuralEngineUtilizationHistory.append(new.neuralEngine.utilization)
+    }
+
+    /// アプリ単位でまとめたメモリ使用量。
+    /// Chrome や Claude のようにヘルパープロセスへ分かれるアプリを 1 つにまとめる。
+    func memoryByApp(limit: Int = 12) -> [AppMemoryUsage] {
+        var groups: [String: AppMemoryUsage] = [:]
+        for row in processes {
+            let key = Self.appIdentity(for: row)
+            if var existing = groups[key.name] {
+                existing.memory += row.memory
+                existing.processCount += 1
+                existing.isOwnedByCurrentUser = existing.isOwnedByCurrentUser || row.isOwnedByCurrentUser
+                groups[key.name] = existing
+            } else {
+                groups[key.name] = AppMemoryUsage(name: key.name,
+                                                  memory: row.memory,
+                                                  processCount: 1,
+                                                  isApp: key.isApp,
+                                                  isOwnedByCurrentUser: row.isOwnedByCurrentUser)
+            }
+        }
+        return Array(groups.values.sorted { $0.memory > $1.memory }.prefix(limit))
+    }
+
+    /// 実行ファイルのパスから所属アプリを割り出す。
+    /// ヘルパーは親アプリの .app の中に入っているので、
+    /// 最初に現れる .app をたどれば親アプリにまとめられる。
+    private static func appIdentity(for row: ProcessRow) -> (name: String, isApp: Bool) {
+        if let range = row.executablePath.range(of: ".app/") {
+            let bundle = row.executablePath[..<range.lowerBound] + ".app"
+            let file = (String(bundle) as NSString).lastPathComponent
+            return (String(file.dropLast(4)), true)
+        }
+        return (row.name, false)
     }
 
     /// 概要画面に出す上位プロセス。

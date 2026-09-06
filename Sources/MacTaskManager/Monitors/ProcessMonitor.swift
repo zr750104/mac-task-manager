@@ -367,3 +367,15 @@ final class ProcessMonitor {
         }
     }
 }
+
+/// アプリ単位でまとめたメモリ使用量。
+struct AppMemoryUsage: Sendable, Identifiable {
+    var id: String { name }
+    var name: String
+    var memory: UInt64
+    /// まとめられたプロセスの数（ヘルパーを含む）
+    var processCount: Int
+    /// .app として識別できたか（できなければシステムのサービス）
+    var isApp: Bool
+    var isOwnedByCurrentUser: Bool
+}

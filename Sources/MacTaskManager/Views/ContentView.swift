@@ -85,6 +85,7 @@ struct ContentView: View {
             engine.isProcessTabVisible = (new == .processes)
             engine.isStartupTabVisible = (new == .startup)
             engine.isOverviewVisible = (new == .overview)
+            engine.isMemoryTabVisible = (new == .memory)
             if new == .processes {
                 Task { await engine.refreshProcessesNow() }
             }
@@ -93,6 +94,7 @@ struct ContentView: View {
             engine.isProcessTabVisible = (selection == .processes)
             engine.isStartupTabVisible = (selection == .startup)
             engine.isOverviewVisible = (selection == .overview)
+            engine.isMemoryTabVisible = (selection == .memory)
         }
     }
 
@@ -101,7 +103,7 @@ struct ContentView: View {
         switch selection {
         case .overview: OverviewPanel(selection: selectionBinding)
         case .cpu: CPUPanel()
-        case .memory: MemoryPanel()
+        case .memory: MemoryPanel(onShowProcesses: { settings.selection = .processes })
         case .gpu: GPUPanel()
         case .npu: NPUPanel()
         case .temperature: TemperaturePanel()
