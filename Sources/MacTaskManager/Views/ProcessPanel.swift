@@ -191,9 +191,9 @@ private struct ProcessTable: View, Equatable {
               columnCustomization: $columnCustomization) {
             TableColumn("プロセス名", value: \.name) { row in
                 HStack(spacing: 6) {
-                    Image(systemName: row.isGUIApp ? "app.fill" : "gearshape.fill")
-                        .font(.caption2)
-                        .foregroundStyle(row.isGUIApp ? Palette.cpu : .secondary)
+                    // ヘルパープロセスは親アプリのアイコンで表示する。
+                    AppIconView(bundlePath: row.appBundlePath,
+                                isApp: row.isGUIApp, size: 15)
                     Text(row.name).lineLimit(1)
                     if row.isTranslated {
                         Text("Rosetta")

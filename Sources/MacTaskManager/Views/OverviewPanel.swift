@@ -235,6 +235,8 @@ struct OverviewPanel: View {
             } else {
                 ForEach(rows) { row in
                     HStack(spacing: 6) {
+                        AppIconView(bundlePath: row.appBundlePath,
+                                    isApp: row.isGUIApp, size: 13)
                         Text(row.name)
                             .font(.caption2)
                             .lineLimit(1)

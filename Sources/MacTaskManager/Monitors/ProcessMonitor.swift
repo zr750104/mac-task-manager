@@ -31,6 +31,20 @@ struct ProcessRow: Sendable, Identifiable, Hashable {
     var isPrecise: Bool
     var isGUIApp: Bool = false
     var bundleIdentifier: String?
+
+    /// 所属するアプリの .app のパス。
+    /// ヘルパープロセスは親アプリの .app の中に入っているので、
+    /// 最初に現れる .app をたどると親アプリに行き着く。
+    var appBundlePath: String? {
+        guard let range = executablePath.range(of: ".app/") else { return nil }
+        return String(executablePath[..<range.lowerBound]) + ".app"
+    }
+
+    /// 所属アプリの表示名。アプリとして識別できなければプロセス名。
+    var appDisplayName: String {
+        guard let bundle = appBundlePath else { return name }
+        return String((bundle as NSString).lastPathComponent.dropLast(4))
+    }
 }
 
 /// プロセス一覧。

@@ -258,17 +258,10 @@ final class MetricsEngine: ObservableObject {
         return Array(groups.values.sorted { $0.memory > $1.memory }.prefix(limit))
     }
 
-    /// 実行ファイルのパスから所属アプリを割り出す。
-    /// ヘルパーは親アプリの .app の中に入っているので、
-    /// 最初に現れる .app をたどれば親アプリにまとめられる。
+    /// 所属アプリの判定は ProcessRow 側に持たせてある。
     private static func appIdentity(for row: ProcessRow)
         -> (name: String, isApp: Bool, bundlePath: String?) {
-        if let range = row.executablePath.range(of: ".app/") {
-            let bundle = String(row.executablePath[..<range.lowerBound]) + ".app"
-            let file = (bundle as NSString).lastPathComponent
-            return (String(file.dropLast(4)), true, bundle)
-        }
-        return (row.name, false, nil)
+        (row.appDisplayName, row.appBundlePath != nil, row.appBundlePath)
     }
 
     /// 概要画面に出す上位プロセス。
