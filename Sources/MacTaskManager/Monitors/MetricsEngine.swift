@@ -251,6 +251,7 @@ final class MetricsEngine: ObservableObject {
                                                   memory: row.memory,
                                                   processCount: 1,
                                                   isApp: key.isApp,
+                                                  bundlePath: key.bundlePath,
                                                   isOwnedByCurrentUser: row.isOwnedByCurrentUser)
             }
         }
@@ -260,13 +261,14 @@ final class MetricsEngine: ObservableObject {
     /// 実行ファイルのパスから所属アプリを割り出す。
     /// ヘルパーは親アプリの .app の中に入っているので、
     /// 最初に現れる .app をたどれば親アプリにまとめられる。
-    private static func appIdentity(for row: ProcessRow) -> (name: String, isApp: Bool) {
+    private static func appIdentity(for row: ProcessRow)
+        -> (name: String, isApp: Bool, bundlePath: String?) {
         if let range = row.executablePath.range(of: ".app/") {
-            let bundle = row.executablePath[..<range.lowerBound] + ".app"
-            let file = (String(bundle) as NSString).lastPathComponent
-            return (String(file.dropLast(4)), true)
+            let bundle = String(row.executablePath[..<range.lowerBound]) + ".app"
+            let file = (bundle as NSString).lastPathComponent
+            return (String(file.dropLast(4)), true, bundle)
         }
-        return (row.name, false)
+        return (row.name, false, nil)
     }
 
     /// 概要画面に出す上位プロセス。

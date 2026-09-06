@@ -126,10 +126,7 @@ struct MemoryPanel: View {
                 VStack(spacing: 5) {
                     ForEach(apps) { app in
                         HStack(spacing: 10) {
-                            Image(systemName: app.isApp ? "app.fill" : "gearshape.fill")
-                                .font(.caption2)
-                                .foregroundStyle(app.isApp ? Palette.memory : .secondary)
-                                .frame(width: 14)
+                            AppIconView(bundlePath: app.bundlePath, isApp: app.isApp)
 
                             Text(app.name)
                                 .font(.callout)

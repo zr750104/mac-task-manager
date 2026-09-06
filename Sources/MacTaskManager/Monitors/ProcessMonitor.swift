@@ -377,5 +377,7 @@ struct AppMemoryUsage: Sendable, Identifiable {
     var processCount: Int
     /// .app として識別できたか（できなければシステムのサービス）
     var isApp: Bool
+    /// アイコンを読み込むための .app のパス。サービスの場合は nil。
+    var bundlePath: String?
     var isOwnedByCurrentUser: Bool
 }
