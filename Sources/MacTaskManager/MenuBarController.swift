@@ -43,9 +43,9 @@ final class MenuBarController: NSObject {
     private func install() {
         guard statusItem == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.imagePosition = .imageLeading
-        item.button?.image = NSImage(systemSymbolName: "gauge.with.dots.needle.bottom.50percent",
-                                     accessibilityDescription: "タスクマネージャー")
+        // 幅を最小にするため、アイコンは付けず表示そのものを画像で出す。
+        item.button?.imagePosition = .imageOnly
+        item.button?.setAccessibilityLabel("タスクマネージャー")
         item.menu = buildMenu()
         statusItem = item
         lastUpdate = .distantPast
@@ -66,17 +66,52 @@ final class MenuBarController: NSObject {
         guard now.timeIntervalSince(lastUpdate) >= 1 else { return }
         lastUpdate = now
 
-        // どの数値が何なのか分かるよう、値の前に短いラベルを付ける。
-        // 数値の桁が変わっても全体が動かないよう、項目ごとに最大幅の枠を確保して並べる。
-        // 並び順は固定にして、値が入れ替わって見えないようにする。
-        let items = MenuBarMetric.allCases
-            .filter { settings.menuBarMetrics.contains($0) }
-            .map { MenuBarTitle.Item(label: $0.shortLabel,
-                                     value: value(for: $0),
-                                     widestSample: widestSample(for: $0)) }
-        let title = MenuBarTitle.make(items)
-        button.attributedTitle = title
+        // 上段にラベル・下段に数値の 2 段で並べ、横幅を最小にする。
+        // 列の幅は最大値で決めるので、数値の桁が変わっても全体は動かない。
+        button.title = ""
+        button.image = MenuBarImage.make(columns())
+        button.toolTip = tooltip()
         updateMenuValues()
+    }
+
+    /// 表示する列を組み立てる。受信・送信が両方あれば上下に重ねて 1 列にする。
+    private func columns() -> [MenuBarImage.Column] {
+        let enabled = MenuBarMetric.allCases.filter { settings.menuBarMetrics.contains($0) }
+        let bothNetwork = enabled.contains(.networkDown) && enabled.contains(.networkUp)
+        var result: [MenuBarImage.Column] = []
+
+        for metric in enabled {
+            switch metric {
+            case .networkDown, .networkUp:
+                if bothNetwork {
+                    // 2 つ目は 1 つ目の列に含めて描くので飛ばす。
+                    guard metric == .networkDown else { continue }
+                    result.append(.init(top: value(for: .networkUp),
+                                        bottom: value(for: .networkDown),
+                                        topSample: widestSample(for: .networkUp),
+                                        bottomSample: widestSample(for: .networkDown),
+                                        topIsLabel: false))
+                } else {
+                    result.append(.init(top: "NET", bottom: value(for: metric),
+                                        topSample: "NET", bottomSample: widestSample(for: metric),
+                                        topIsLabel: true))
+                }
+            default:
+                result.append(.init(top: metric.shortLabel, bottom: value(for: metric),
+                                    topSample: metric.shortLabel,
+                                    bottomSample: widestSample(for: metric),
+                                    topIsLabel: true))
+            }
+        }
+        return result
+    }
+
+    /// 2 段表示は小さいので、カーソルを乗せたときに文字で全体を読めるようにする。
+    private func tooltip() -> String {
+        MenuBarMetric.allCases
+            .filter { settings.menuBarMetrics.contains($0) }
+            .map { "\($0.label) \(value(for: $0))" }
+            .joined(separator: "  ")
     }
 
     /// その項目が取りうる最大の幅。これで枠の大きさを決める。
