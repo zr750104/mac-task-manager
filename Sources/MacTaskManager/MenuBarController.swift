@@ -67,32 +67,27 @@ final class MenuBarController: NSObject {
         lastUpdate = now
 
         // どの数値が何なのか分かるよう、値の前に短いラベルを付ける。
-        // ラベルは小さめ・淡めにして、数値が読みやすくなるようにしている。
-        let title = NSMutableAttributedString()
-        let labelAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
-            .foregroundColor: NSColor.secondaryLabelColor
-        ]
-        let valueAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: NSColor.labelColor
-        ]
-
+        // 数値の桁が変わっても全体が動かないよう、項目ごとに最大幅の枠を確保して並べる。
         // 並び順は固定にして、値が入れ替わって見えないようにする。
-        for metric in MenuBarMetric.allCases where settings.menuBarMetrics.contains(metric) {
-            if title.length > 0 {
-                title.append(NSAttributedString(string: "  ", attributes: valueAttributes))
-            }
-            // ラベルを持たない項目（ネットワーク）は数値だけを出す。
-            if !metric.shortLabel.isEmpty {
-                title.append(NSAttributedString(string: metric.shortLabel + " ",
-                                                attributes: labelAttributes))
-            }
-            title.append(NSAttributedString(string: value(for: metric),
-                                            attributes: valueAttributes))
-        }
+        let items = MenuBarMetric.allCases
+            .filter { settings.menuBarMetrics.contains($0) }
+            .map { MenuBarTitle.Item(label: $0.shortLabel,
+                                     value: value(for: $0),
+                                     widestSample: widestSample(for: $0)) }
+        let title = MenuBarTitle.make(items)
         button.attributedTitle = title
         updateMenuValues()
+    }
+
+    /// その項目が取りうる最大の幅。これで枠の大きさを決める。
+    /// 等幅数字なので数字は "0" で代表させ、単位は最も幅の広いものを入れておく。
+    private func widestSample(for metric: MenuBarMetric) -> String {
+        switch metric {
+        case .cpu, .memory, .gpu, .neuralEngine: return "000%"
+        case .networkDown: return "↓000M"
+        case .networkUp: return "↑000M"
+        case .temperature: return "000℃"
+        }
     }
 
     private func value(for metric: MenuBarMetric) -> String {

@@ -24,14 +24,15 @@ enum Fmt {
     }
 
     /// メニューバー向けの短い転送速度。「1.2M」「340K」のように単位を 1 文字にする。
-    /// 幅が限られるため小数は 1 桁までにとどめる。
+    /// 幅を固定して表示するため、数字は最大 3 桁に収める。
+    /// 1000 を超えたら次の単位へ上げるので「1023K」のような 4 桁にはならない（→「1.0M」）。
     static func compactRate(_ bytesPerSec: Double) -> String {
         let v = max(0, bytesPerSec)
         if v < 1000 { return String(format: "%.0f", v) }
         let units = ["K", "M", "G", "T"]
         var value = v / 1024
         var unit = 0
-        while value >= 1024, unit < units.count - 1 {
+        while value >= 1000, unit < units.count - 1 {
             value /= 1024
             unit += 1
         }
