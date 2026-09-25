@@ -51,6 +51,14 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// ウィジェットの更新間隔。
+    @Published var widgetRefreshInterval: WidgetRefreshInterval {
+        didSet {
+            defaults.set(widgetRefreshInterval.rawValue, forKey: Keys.widgetRefreshInterval)
+            WidgetRefresher.start(interval: widgetRefreshInterval)
+        }
+    }
+
     @Published var isAlwaysOnTop: Bool {
         didSet {
             defaults.set(isAlwaysOnTop, forKey: Keys.alwaysOnTop)
@@ -73,6 +81,7 @@ final class AppSettings: ObservableObject {
         static let menuBarItem = "showsMenuBarItem"
         static let menuBarMetrics = "menuBarMetrics"
         static let refreshRate = "refreshRate"
+        static let widgetRefreshInterval = "widgetRefreshInterval"
         static let addedNetworkMetrics = "didAddNetworkMetricsToMenuBar"
     }
 
@@ -86,6 +95,8 @@ final class AppSettings: ObservableObject {
         ])
         let storedRate = defaults.double(forKey: Keys.refreshRate)
         refreshRate = RefreshRate(rawValue: storedRate) ?? .normal
+        widgetRefreshInterval = WidgetRefreshInterval(
+            rawValue: defaults.double(forKey: Keys.widgetRefreshInterval)) ?? .fast
         isAlwaysOnTop = defaults.bool(forKey: Keys.alwaysOnTop)
         showsMenuBarItem = defaults.bool(forKey: Keys.menuBarItem)
         if let stored = defaults.stringArray(forKey: Keys.menuBarMetrics) {

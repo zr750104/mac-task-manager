@@ -44,6 +44,12 @@ struct MacTaskManagerApp: App {
                 Toggle("常に最前面に表示", isOn: $settings.isAlwaysOnTop)
                     .keyboardShortcut("t", modifiers: [.command, .shift])
                 Toggle("メニューバーに表示", isOn: $settings.showsMenuBarItem)
+                Divider()
+                Picker("ウィジェットの更新間隔", selection: $settings.widgetRefreshInterval) {
+                    ForEach(WidgetRefreshInterval.allCases) { interval in
+                        Text(interval.label).tag(interval)
+                    }
+                }
             }
         }
     }
@@ -80,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         StandardMenu.install()
+        WidgetRefresher.start(interval: AppSettings.shared.widgetRefreshInterval)
         UpdateChecker.shared.checkOnLaunchIfNeeded()
     }
 

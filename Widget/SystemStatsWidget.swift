@@ -25,14 +25,32 @@ enum StatsSampler {
                           memoryUsed: used, memoryTotal: total)
     }
 
-    /// 全コアの tick を 1 秒あけて 2 回読み、その差から使用率を出す。
+    /// 前回の更新時に保存しておいた tick との差から、その間の平均使用率を出す。
+    /// アプリ本体が数秒おきに更新を依頼するので、待たずに「直近数秒の平均」が得られる。
+    /// 前回の値が無い・古すぎる（2 分超）ときだけ、0.5 秒あけて 2 回読む。
     static func cpuUsage() -> Double {
-        guard let first = ticks() else { return 0 }
-        Thread.sleep(forTimeInterval: 1)
+        guard let now = ticks() else { return 0 }
+        let store = UserDefaults.standard
+        defer {
+            store.set(Double(now.busy), forKey: "lastBusyTicks")
+            store.set(Double(now.total), forKey: "lastTotalTicks")
+            store.set(Date().timeIntervalSince1970, forKey: "lastTicksTime")
+        }
+        let lastTime = store.double(forKey: "lastTicksTime")
+        let lastBusy = UInt64(store.double(forKey: "lastBusyTicks"))
+        let lastTotal = UInt64(store.double(forKey: "lastTotalTicks"))
+        let age = Date().timeIntervalSince1970 - lastTime
+
+        if lastTime > 0, age < 120, now.total > lastTotal, now.busy >= lastBusy {
+            return ratio(busy: now.busy - lastBusy, total: now.total - lastTotal)
+        }
+        Thread.sleep(forTimeInterval: 0.5)
         guard let second = ticks() else { return 0 }
-        let busy = Double(second.busy &- first.busy)
-        let total = Double(second.total &- first.total)
-        return total > 0 ? min(1, max(0, busy / total)) : 0
+        return ratio(busy: second.busy &- now.busy, total: second.total &- now.total)
+    }
+
+    private static func ratio(busy: UInt64, total: UInt64) -> Double {
+        total > 0 ? min(1, max(0, Double(busy) / Double(total))) : 0
     }
 
     private static func ticks() -> (busy: UInt64, total: UInt64)? {
@@ -88,7 +106,9 @@ struct StatsProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<StatsEntry>) -> Void) {
-        // 更新の頻度はシステムが決める。ここでは「1 分後以降に更新してほしい」と伝えるだけ。
+        // 普段はアプリ本体が数秒おきに更新を依頼する（WidgetRefresher）。
+        // アプリが起動していないときの保険として「1 分後以降に更新してほしい」とも伝えておく
+        // （この場合はシステムが決めた 1〜15 分後のどこかで更新される）。
         let entry = StatsSampler.sample()
         completion(Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(60))))
     }
@@ -105,8 +125,10 @@ struct StatsWidgetView: View {
             gauge("CPU", entry.cpu, .blue)
             gauge("メモリ", entry.memory, .purple)
             Spacer(minLength: 0)
-            Text(entry.date, style: .time)
+            // アプリが数秒おきに更新するので、何時何分何秒の値かを出す。
+            Text(entry.date, format: .dateTime.hour().minute().second())
                 .font(.caption2)
+                .monospacedDigit()
                 .foregroundStyle(.tertiary)
         }
         .containerBackground(.fill.tertiary, for: .widget)
