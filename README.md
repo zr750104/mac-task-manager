@@ -12,11 +12,11 @@ Apple Silicon 向けに、**P コア / E コアの区別**、**ユニファイ�
 ## インストール
 
 [Releases](https://github.com/zr750104/mac-task-manager/releases) から zip を落として
-`タスクマネージャー.app` を `/Applications` に入れてください。
+`MacTaskManager.app` を `/Applications` に入れてください（Finder では「タスクマネージャー」と表示されます）。
 署名は ad-hoc のため、ダウンロード版は初回起動時に隔離属性の解除が必要な場合があります。
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/タスクマネージャー.app"
+xattr -dr com.apple.quarantine "/Applications/MacTaskManager.app"
 ```
 
 自分でビルドする場合は下の「ビルドと実行」を参照してください。ビルドすればこの操作は不要です。
@@ -57,6 +57,23 @@ CPU・メモリ・GPU・NPU・温度をメニューバーに常時表示でき�
 
 メニューバーに常駐している間は、ウインドウを閉じてもアプリは終了しません。
 
+### ウィジェット
+
+通知センターやデスクトップに置ける macOS 標準のウィジェットを用意しています（「システム状況」）。
+デスクトップを右クリック →「ウィジェットを編集…」→「タスクマネージャー」で追加できます。
+
+**利用には開発用証明書での署名が必要です。** macOS は証明書のないウィジェットの起動を許可しません。
+
+1. Xcode →「設定…」→「Accounts」で Apple ID を追加（無料。有料の開発者登録は不要）
+2. アカウントを選び「Manage Certificates…」→「+」→「Apple Development」
+3. `./build.sh --install` を実行（証明書は自動で見つけて使います）
+
+証明書が無い場合は ad-hoc 署名になり、アプリ本体は動きますがウィジェットは表示されません。
+GitHub Releases の配布版も同じ理由でウィジェットは使えません。自分でビルドしてください。
+
+ウィジェットの更新間隔はシステムが決めるため、数分〜十数分おきになります（秒単位の表示はできません）。
+また App Sandbox の中で動くので、ウィジェット自身が計測できる CPU とメモリを表示しています。
+
 ### 常に最前面
 
 「モニター」メニュー →「常に最前面に表示」（⇧⌘T）またはメニューバーから切り替えます。
@@ -76,7 +93,7 @@ CPU・メモリ・GPU・NPU・温度をメニューバーに常時表示でき�
 
 ```bash
 ./build.sh
-"./build/タスクマネージャー.app/Contents/MacOS/MacTaskManager" --export-screenshots /tmp/shots
+"./build/MacTaskManager.app/Contents/MacOS/MacTaskManager" --export-screenshots /tmp/shots
 ```
 
 グラフに履歴を溜めるため 40 秒待ってから、全画面を 2 倍解像度で順に書き出します。
@@ -92,7 +109,7 @@ Chrome のヘッドレスモードで PDF に変換しています。
 ./build.sh --run
 ```
 
-`build/タスクマネージャー.app` が生成され、そのまま起動します。
+`build/MacTaskManager.app` が生成され、そのまま起動します。
 `./build.sh --install` で `/Applications` にインストールします。
 
 必要なもの: macOS 14 以降、Xcode またはコマンドラインツール（`xcode-select --install`）。
@@ -112,7 +129,7 @@ cd "TaskManger for MAC"
 macOS の隔離属性が付いて起動を拒まれることがあります。その場合は次で解除できます。
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/タスクマネージャー.app"
+xattr -dr com.apple.quarantine "/Applications/MacTaskManager.app"
 ```
 
 機種の違いはコード側で吸収しています。
@@ -332,7 +349,23 @@ M4（P 4 + E 6）で高 QoS のスレッドを 4 本回したところ、index 6
 `IOReportChannelGetGroup` などは所有権を渡さない（+0）ため、
 `takeRetainedValue()` を使うと過剰解放でクラッシュします。`takeUnretainedValue()` が正解です。
 
-### 6. `product-name` は `IODeviceTree:/product` にある
+### 6. ウィジェットを自前でビルドするときの落とし穴
+
+SwiftPM は `.appex` を作れないため、`build.sh` で `swiftc` を直接使ってウィジェット拡張を作っています。
+Xcode が自動でやっていることを手で再現する必要があり、次の 3 点で詰まりました。
+
+1. **開発用証明書が必要。** ad-hoc 署名だと RunningBoard が `Client not authorized` で起動を拒否する
+2. **アプリのファイル名に濁点を含む日本語を使えない。** 「ジ」が「シ」＋濁点に分解されて記録され、
+   起動時に Launch Services から拡張の記録を引けず（`-10814`）、結局 `Client not authorized` になる。
+   ファイル名は `MacTaskManager.app` にし、表示名だけ `InfoPlist.strings` で日本語にしている
+3. **起動の入口を `_NSExtensionMain` にする必要がある**（`-Xlinker -e -Xlinker _NSExtensionMain`）。
+   Swift の `@main` のままだとシステムから渡される `-LaunchArguments` が読まれず、
+   `ExtensionMain.shared.launchArguments` が空のまま ExtensionFoundation の中で停止する
+
+また chronod は `CFBundleVersion` が同じだと「前と同じ拡張」とみなして読み直さないため、
+`build.sh` はビルドのたびにビルド番号を日時で振り直しています。
+
+### 7. `product-name` は `IODeviceTree:/product` にある
 
 「Mac mini (2024)」のような製品名は `IOPlatformExpertDevice` ではなく
 デバイスツリーの `/product` ノードに入っています。

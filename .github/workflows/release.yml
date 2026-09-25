@@ -35,8 +35,7 @@ jobs:
           cd build
           # 添付ファイル名は ASCII にする。GitHub はリリース添付の名前から
           # 非 ASCII 文字を落とすため、日本語名だと "-v1.0.0.zip" になってしまう。
-          # zip の中身は「タスクマネージャー.app」のまま。
-          zip -r -y "../MacTaskManager-${GITHUB_REF_NAME}.zip" "タスクマネージャー.app"
+          zip -r -y "../MacTaskManager-${GITHUB_REF_NAME}.zip" "MacTaskManager.app"
 
       - name: Release に添付
         uses: softprops/action-gh-release@v2

@@ -105,7 +105,7 @@ PAGES.append("""
   <h2>インストールと使い方</h2>
 
   <h3>1. ビルドする</h3>
-  <p>プロジェクトのフォルダで次を実行します。<code>build/タスクマネージャー.app</code> が作られ、そのまま起動します。</p>
+  <p>プロジェクトのフォルダで次を実行します。<code>build/MacTaskManager.app</code> が作られ、そのまま起動します。</p>
   <pre>./build.sh --run</pre>
   <p><code>/Applications</code> に入れる場合は次を実行します。</p>
   <pre>./build.sh --install</pre>
@@ -125,7 +125,7 @@ PAGES.append("""
   <p>プロジェクトをコピーして、その Mac 上で <code>./build.sh</code> を実行してください。
   ビルド済みの <code>.app</code> をコピーしても動きますが、ネットワーク経由や USB で持ち込むと
   隔離属性が付いて起動を拒まれることがあります。その場合は次で解除できます。</p>
-  <pre>xattr -dr com.apple.quarantine "/Applications/タスクマネージャー.app"</pre>
+  <pre>xattr -dr com.apple.quarantine "/Applications/MacTaskManager.app"</pre>
 
   <h3>キーボードショートカット</h3>
   <table class="kv">

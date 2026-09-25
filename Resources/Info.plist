@@ -4,15 +4,17 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>ja</string>
+	<key>CFBundleDisplayName</key>
+	<string>タスクマネージャー</string>
 	<key>CFBundleExecutable</key>
 	<string>MacTaskManager</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>local.mactaskmanager</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>タスクマネージャー</string>
-	<key>CFBundleDisplayName</key>
 	<string>タスクマネージャー</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
@@ -20,17 +22,17 @@
 	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
+	<key>LSHasLocalizedDisplayName</key>
+	<true/>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>ローカルビルド</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
 </dict>
 </plist>

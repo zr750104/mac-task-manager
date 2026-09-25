@@ -1,0 +1,3 @@
+/* Finder・Dock などでの表示名。ファイル名はローマ字（MacTaskManager.app）。 */
+CFBundleDisplayName = "タスクマネージャー";
+CFBundleName = "タスクマネージャー";
