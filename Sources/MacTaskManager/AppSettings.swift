@@ -33,6 +33,28 @@ enum MenuBarMetric: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// 閉じたメインウインドウを開き直す。
+/// SwiftUI の openWindow はビューからしか取れないので、最初に表示されたときに預かっておく。
+/// （@Published にしないこと。App が監視しているため、変わるとメニューが作り直される）
+@MainActor
+enum MainWindow {
+    static var opener: (() -> Void)?
+
+    /// 表示中ならそれを手前に、閉じていれば開き直す。
+    static func show() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let window = NSApp.windows.first(where: {
+            $0.canBecomeMain && ($0.isVisible || $0.isMiniaturized)
+        }) {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            opener?()
+        }
+        AppSettings.shared.applyWindowLevel()
+    }
+}
+
 /// ウインドウやメニューバーの表示設定。UserDefaults に保存する。
 @MainActor
 final class AppSettings: ObservableObject {

@@ -55,16 +55,31 @@ final class StandardMenu: NSObject, NSMenuDelegate {
               let windowItem = main.items.first(where: {
                   $0.title == "ウインドウ" || $0.title == "Window"
               }), let menu = windowItem.submenu else { return }
-        let fullScreen = NSSelectorFromString("toggleFullScreen:")
-        if !menu.items.contains(where: { $0.action == fullScreen }) {
-            apply()
-        }
+        _ = menu
+        if needsRebuild(in: main) { apply() }
     }
 
     static func apply() {
         guard let main = NSApp.mainMenu else { return }
         fixViewMenu(in: main)
-        rebuildWindowMenu(in: main)
+        if needsRebuild(in: main) { rebuildWindowMenu(in: main) }
+    }
+
+    /// SwiftUI だけが作った簡素なメニュー（しまう／拡大縮小／手前に移動＋一覧）のときだけ作り直す。
+    /// macOS 27 では OS 自身が「画面全体に表示」「移動とサイズ変更」などを入れてくるので、
+    /// その場合に自前の項目で上書きすると、かえって機能が減ってしまう。
+    private static func needsRebuild(in main: NSMenu) -> Bool {
+        guard let menu = main.items.first(where: {
+            $0.title == "ウインドウ" || $0.title == "Window"
+        })?.submenu else { return false }
+        menu.update()
+        let actionable = menu.items.filter { !$0.isSeparatorItem && $0.action != nil }
+        let hasTiling = menu.items.contains { item in
+            guard let action = item.action else { return false }
+            let name = NSStringFromSelector(action).lowercased()
+            return name.contains("fill") || name.contains("center") || name.contains("tile")
+        }
+        return !hasTiling && actionable.count <= 6
     }
 
     // MARK: - 表示メニュー

@@ -90,6 +90,8 @@ final class NeuralEngineMonitor {
     }()
 
     /// 使用率の基準を実測の既定値に戻す。
+    /// 計測は別スレッド（Sampler）で動くので、ここでは保存値を消すだけにして、
+    /// 次回の計測時にそれを見て基準を戻す（再起動を待たずに反映される）。
     static func resetReference() {
         UserDefaults.standard.removeObject(forKey: referenceKey)
     }
@@ -110,6 +112,11 @@ final class NeuralEngineMonitor {
         // 電力が取れていれば ANE の情報として意味がある。
         result.available = watts > 0 || result.operationsPerSecond > 0 || !isUnavailable
 
+        // 「基準を戻す」で保存値が消されていたら、既定値に戻す。
+        if UserDefaults.standard.object(forKey: Self.referenceKey) == nil,
+           referenceWatts > Self.defaultReferenceWatts {
+            referenceWatts = Self.defaultReferenceWatts
+        }
         // 基準を超える電力を観測したら、そこまで引き上げて記憶する。
         if result.watts > referenceWatts {
             referenceWatts = result.watts

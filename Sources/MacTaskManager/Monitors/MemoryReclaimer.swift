@@ -28,23 +28,27 @@ enum MemoryReclaimer {
         }
     }
 
+    /// NSAppleScript はメインスレッド以外での利用が保証されていないため、
+    /// osascript を別プロセスで起動して待つ。認証ダイアログは osascript 側に出る。
     private static func runWithAdministratorPrivileges() -> Result {
-        // AppleScript 経由だと macOS 標準の認証ダイアログが出る。
-        let script = """
-        do shell script "/usr/sbin/purge" with administrator privileges
-        """
-        var error: NSDictionary?
-        guard let apple = NSAppleScript(source: script) else {
-            return .failed("スクリプトを準備できませんでした。")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", "do shell script \"/usr/sbin/purge\" with administrator privileges"]
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+        process.standardOutput = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return .failed("osascript を起動できませんでした: \(error.localizedDescription)")
         }
-        apple.executeAndReturnError(&error)
+        process.waitUntilExit()
+        if process.terminationStatus == 0 { return .success }
 
-        guard let error else { return .success }
-        // -128 はユーザーがキャンセルしたとき。
-        if let code = error[NSAppleScript.errorNumber] as? Int, code == -128 {
-            return .cancelled
-        }
-        let message = error[NSAppleScript.errorMessage] as? String ?? "不明なエラー"
-        return .failed(message)
+        let message = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
+                             encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // -128 はユーザーが認証ダイアログでキャンセルしたとき。
+        if message.contains("-128") { return .cancelled }
+        return .failed(message.isEmpty ? "不明なエラー（終了コード \(process.terminationStatus)）" : message)
     }
 }

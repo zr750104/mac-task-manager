@@ -51,7 +51,8 @@ struct OverviewPanel: View {
         }
     }
 
-    /// 列数。カード 9 枚がちょうど 3×3 に収まるよう、3 列を使う幅を広めに取っている。
+    /// 列数。カードは 10 枚（ノート型はバッテリーを加えて 11 枚）。
+    /// 1 枚のカードが狭くなりすぎないよう、3 列を使う幅を広めに取っている。
     private func columnCount(for width: CGFloat) -> Int {
         switch width {
         case ..<300: return 1

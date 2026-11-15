@@ -230,14 +230,7 @@ final class MenuBarController: NSObject {
     // MARK: - 操作
 
     @objc private func openWindow() {
-        NSApp.activate(ignoringOtherApps: true)
-        // 閉じている場合は SwiftUI が用意した復元用メニュー項目を使って開き直す。
-        if let window = NSApp.windows.first(where: { $0.canBecomeMain }) {
-            window.makeKeyAndOrderFront(nil)
-        } else {
-            NSApp.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil)
-        }
-        settings.applyWindowLevel()
+        MainWindow.show()
     }
 
     @objc private func toggleAlwaysOnTop() {

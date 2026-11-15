@@ -15,7 +15,7 @@ struct MacTaskManagerApp: App {
     @StateObject private var settings = AppSettings.shared
 
     var body: some Scene {
-        WindowGroup("タスクマネージャー") {
+        WindowGroup("タスクマネージャー", id: "main") {
             ContentView()
                 .environmentObject(engine)
                 .environmentObject(settings)
@@ -88,6 +88,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         StandardMenu.install()
         WidgetRefresher.start(interval: AppSettings.shared.widgetRefreshInterval)
         UpdateChecker.shared.checkOnLaunchIfNeeded()
+    }
+
+    /// Dock のアイコンをクリックしたとき、ウインドウが無ければ開き直す。
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { MainWindow.show() }
+        return true
     }
 
     /// メニューバーに常駐している間はウインドウを閉じても終了しない。

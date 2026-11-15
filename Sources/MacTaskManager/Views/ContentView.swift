@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 enum Panel: String, CaseIterable, Identifiable, Hashable {
     case overview, cpu, memory, gpu, npu, temperature, disk, network, processes, startup
@@ -54,6 +55,7 @@ enum Panel: String, CaseIterable, Identifiable, Hashable {
 struct ContentView: View {
     @EnvironmentObject private var engine: MetricsEngine
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.openWindow) private var openWindow
 
     /// 実体は AppSettings 側。スクリーンショット書き出しから切り替えるため外に出してある。
     private var selection: Panel { settings.selection }
@@ -91,6 +93,9 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            // ウインドウを閉じたあと、メニューバーや Dock から開き直せるようにする。
+            let open = openWindow
+            MainWindow.opener = { open(id: "main") }
             engine.isProcessTabVisible = (selection == .processes)
             engine.isStartupTabVisible = (selection == .startup)
             engine.isOverviewVisible = (selection == .overview)

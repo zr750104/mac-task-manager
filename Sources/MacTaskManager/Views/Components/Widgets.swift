@@ -27,7 +27,9 @@ enum Palette {
 /// StatTile を並べる。幅が狭いときは自動で折り返す。
 struct TileGrid: View {
     struct Item: Identifiable {
-        let id = UUID()
+        /// 見出しで識別する。UUID() にすると毎秒の再描画のたびに別物と扱われ、
+        /// タイルが作り直されて値の変化をアニメーションできない。
+        var id: String { title }
         var title: String
         var value: String
         var caption: String?
@@ -134,7 +136,7 @@ struct UsageBar: View {
 /// メモリの内訳のように、複数の区分を 1 本の帯で示す。
 struct SegmentedBar: View {
     struct Segment: Identifiable {
-        let id = UUID()
+        var id: String { label }
         var label: String
         var value: Double
         var color: Color

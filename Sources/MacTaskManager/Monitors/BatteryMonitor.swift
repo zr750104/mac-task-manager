@@ -71,7 +71,14 @@ final class BatteryMonitor {
         result.isPluggedIn = boolean("ExternalConnected")
         result.isFullyCharged = boolean("FullyCharged")
         result.cycleCount = integer("CycleCount") ?? 0
-        if design > 0 { result.health = min(1, Double(maximum) / Double(design)) }
+        // Apple Silicon では CurrentCapacity / MaxCapacity が「%」（最大 100）で返る。
+        // 劣化度は mAh 同士で比べる必要があるので、AppleRawMaxCapacity（mAh）を優先する。
+        // Intel 機など AppleRaw が無い機種では MaxCapacity が mAh なのでそちらを使う。
+        let fullChargeMAh = integer("AppleRawMaxCapacity") ?? integer("NominalChargeCapacity")
+            ?? (maximum > 100 ? maximum : 0)
+        if design > 0, fullChargeMAh > 0 {
+            result.health = min(1, Double(fullChargeMAh) / Double(design))
+        }
         result.condition = (values["BatteryHealthCondition"] as? String)
             .flatMap { $0.isEmpty ? nil : $0 } ?? "正常"
 
@@ -87,7 +94,7 @@ final class BatteryMonitor {
         result.wattage = Double(milliAmps) * Double(milliVolts) / 1_000_000
 
         // 満充電/計算中は極端な値が入るため、現実的な範囲だけ採用する。
-        let remaining = result.isCharging ? integer("TimeRemaining") : integer("TimeRemaining")
+        let remaining = integer("TimeRemaining")
         if let remaining, remaining > 0, remaining < 60 * 24 {
             result.minutesRemaining = remaining
         }
