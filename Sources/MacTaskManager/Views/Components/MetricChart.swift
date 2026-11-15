@@ -256,10 +256,13 @@ final class ChartLayerView: NSView {
 
     private func paths(in size: CGSize) -> (line: CGPath, area: CGPath) {
         let step = size.width / CGFloat(values.count - 1)
-        let points = values.indices.map { index -> CGPoint in
+        var points = values.indices.map { index -> CGPoint in
             let ratio = ceiling > 0 ? min(1, max(0, values[index] / ceiling)) : 0
             return CGPoint(x: CGFloat(index) * step, y: size.height * (1 - CGFloat(ratio)))
         }
+        // 1 目盛り右にずらして滑り出す瞬間に左端が欠けないよう、
+        // 画面の外（x = -step）に先頭の値をもう 1 つ置いておく。
+        points.insert(CGPoint(x: -step, y: points[0].y), at: 0)
         // 隣り合う点の中点を通る 2 次曲線でつなぎ、折れ線を滑らかにする。
         let line = CGMutablePath()
         line.move(to: points[0])
@@ -273,7 +276,7 @@ final class ChartLayerView: NSView {
 
         let area = line.mutableCopy() ?? CGMutablePath()
         area.addLine(to: CGPoint(x: size.width, y: size.height))
-        area.addLine(to: CGPoint(x: 0, y: size.height))
+        area.addLine(to: CGPoint(x: -step, y: size.height))
         area.closeSubpath()
         return (line, area)
     }

@@ -92,8 +92,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Dock のアイコンをクリックしたとき、ウインドウが無ければ開き直す。
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { MainWindow.show() }
-        return true
+        // 自前で開いたときは false を返し、システム側でもう 1 枚開かれないようにする。
+        guard !flag else { return true }
+        MainWindow.show()
+        return false
     }
 
     /// メニューバーに常駐している間はウインドウを閉じても終了しない。
