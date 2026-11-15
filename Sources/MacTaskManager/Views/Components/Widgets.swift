@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// 画面ごとのテーマカラー。
 enum Palette {
@@ -90,7 +91,18 @@ struct StatTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
         .padding(.horizontal, 11)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.045)))
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(emphasized && color != .primary
+                      ? AnyShapeStyle(LinearGradient(colors: [color.opacity(0.14), color.opacity(0.03)],
+                                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                      : AnyShapeStyle(Color.primary.opacity(0.045)))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(emphasized && color != .primary ? color.opacity(0.25) : .clear,
+                              lineWidth: 0.75)
+        )
     }
 }
 
@@ -114,22 +126,110 @@ struct DetailRow: View {
     }
 }
 
-/// 使用率を示す横棒。
-struct UsageBar: View {
+/// 使用率を示す横棒。値が変わると弾むように伸び縮みする。
+///
+/// 毎秒の値の変化を SwiftUI で動かすと画面全体が毎フレーム再計算されて重くなるため、
+/// 伸び縮みは Core Animation のばねアニメーションで動かしている。
+struct UsageBar: NSViewRepresentable {
     var ratio: Double
     var color: Color
     var height: CGFloat = 8
 
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.1))
-                Capsule()
-                    .fill(color)
-                    .frame(width: max(0, min(1, ratio)) * geometry.size.width)
-            }
+    func makeNSView(context: Context) -> UsageBarView { UsageBarView() }
+
+    func updateNSView(_ view: UsageBarView, context: Context) {
+        view.update(ratio: max(0, min(1, ratio)), color: NSColor(color),
+                    animated: !context.environment.accessibilityReduceMotion)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: UsageBarView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 100, height: height)
+    }
+}
+
+final class UsageBarView: NSView {
+    private let track = CALayer()
+    private let bar = CAGradientLayer()
+    private let gloss = CALayer()
+    private var ratio: Double = 0
+    private var color: NSColor = .systemBlue
+
+    override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        bar.startPoint = CGPoint(x: 0, y: 0.5)
+        bar.endPoint = CGPoint(x: 1, y: 0.5)
+        bar.masksToBounds = true
+        bar.addSublayer(gloss)
+        layer?.addSublayer(track)
+        layer?.addSublayer(bar)
+        let none: [String: CAAction] = ["bounds": NSNull(), "position": NSNull(), "colors": NSNull(),
+                                        "backgroundColor": NSNull(), "cornerRadius": NSNull(),
+                                        "frame": NSNull()]
+        for sublayer in [track, bar, gloss] { sublayer.actions = none }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) は使わない") }
+
+    func update(ratio newRatio: Double, color newColor: NSColor, animated: Bool) {
+        let previousWidth = bar.bounds.width
+        ratio = newRatio
+        color = newColor
+        rebuild()
+        let width = bar.bounds.width
+        guard animated, abs(width - previousWidth) > 0.5, previousWidth > 0 else { return }
+        let spring = CASpringAnimation(keyPath: "bounds.size.width")
+        spring.fromValue = previousWidth
+        spring.toValue = width
+        spring.damping = 14
+        spring.stiffness = 170
+        spring.mass = 1
+        spring.duration = spring.settlingDuration
+        bar.add(spring, forKey: "grow")
+        // 幅に合わせて左端を固定するため、位置も同じ動きで追従させる。
+        let follow = CASpringAnimation(keyPath: "position.x")
+        follow.fromValue = previousWidth / 2
+        follow.toValue = width / 2
+        follow.damping = spring.damping
+        follow.stiffness = spring.stiffness
+        follow.duration = spring.duration
+        bar.add(follow, forKey: "follow")
+    }
+
+    override func layout() {
+        super.layout()
+        rebuild()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        rebuild()
+    }
+
+    private func rebuild() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        let h = bounds.height
+        var trackColor = NSColor.labelColor.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            trackColor = NSColor.labelColor.withAlphaComponent(0.1).cgColor
         }
-        .frame(height: height)
+        track.frame = bounds
+        track.cornerRadius = h / 2
+        track.backgroundColor = trackColor
+
+        let base = color.usingColorSpace(.deviceRGB) ?? color
+        let width = ratio > 0 ? max(h, CGFloat(ratio) * bounds.width) : 0
+        bar.frame = CGRect(x: 0, y: 0, width: width, height: h)
+        bar.cornerRadius = h / 2
+        bar.colors = [base.withAlphaComponent(0.65).cgColor, base.cgColor]
+        // 上半分に薄い光沢を乗せて立体感を出す。
+        gloss.frame = CGRect(x: h / 3, y: 1, width: max(0, width - h * 2 / 3), height: h / 2.4)
+        gloss.cornerRadius = h / 4.8
+        gloss.backgroundColor = NSColor.white.withAlphaComponent(0.18).cgColor
     }
 }
 
@@ -151,7 +251,8 @@ struct SegmentedBar: View {
             HStack(spacing: 1) {
                 ForEach(segments) { segment in
                     Rectangle()
-                        .fill(segment.color)
+                        .fill(LinearGradient(colors: [segment.color.opacity(0.75), segment.color],
+                                             startPoint: .top, endPoint: .bottom))
                         .frame(width: total > 0
                                ? max(0, segment.value / total) * (geometry.size.width - CGFloat(segments.count))
                                : 0)
@@ -206,6 +307,7 @@ struct PanelHeader: View {
                 .font(.system(size: 34, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(valueColor)
+                .shadow(color: valueColor.opacity(0.35), radius: 8)
         }
     }
 }
@@ -249,7 +351,8 @@ struct CoreGrid: View {
                     }
                     MetricChart(values: histories[index].padded, maxValue: 1,
                                 color: color(for: index), showsGrid: isLarge,
-                                gridRows: 2, gridColumns: 3, lineWidth: isLarge ? 1.5 : 1)
+                                gridRows: 2, gridColumns: 3, lineWidth: isLarge ? 1.5 : 1,
+                                decorated: isLarge)
                         .frame(height: chartHeight)
                 }
                 .padding(6)

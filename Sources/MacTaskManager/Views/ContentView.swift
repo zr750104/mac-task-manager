@@ -56,6 +56,7 @@ struct ContentView: View {
     @EnvironmentObject private var engine: MetricsEngine
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// 実体は AppSettings 側。スクリーンショット書き出しから切り替えるため外に出してある。
     private var selection: Panel { settings.selection }
@@ -71,7 +72,13 @@ struct ContentView: View {
             VStack(spacing: 10) {
                 UpdateBanner()
                 content
+                    .id(selection)
+                    .transition(reduceMotion ? .opacity : .asymmetric(
+                        insertion: .opacity.combined(with: .offset(y: 18))
+                            .combined(with: .scale(scale: 0.985, anchor: .top)),
+                        removal: .opacity))
             }
+            .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: selection)
             // 概要は画面いっぱいに敷き詰めてスクロールを避けるため余白を詰める。
             .padding(selection == .overview ? 12 : 18)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

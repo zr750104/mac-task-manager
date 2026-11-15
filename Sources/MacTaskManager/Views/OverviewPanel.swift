@@ -40,7 +40,11 @@ struct OverviewPanel: View {
                     columns: Array(repeating: GridItem(.flexible(), spacing: spacing),
                                    count: columns),
                     spacing: spacing) {
-                        ForEach(cards) { cardView($0, height: cardHeight) }
+                        ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
+                            OverviewCard(index: index, color: card.color) {
+                                cardView(card, height: cardHeight)
+                            }
+                        }
                     }
                 if fits {
                     grid
@@ -386,9 +390,54 @@ struct OverviewPanel: View {
             .padding(8)
             .frame(height: height)
             .frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.045)))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(LinearGradient(colors: [card.color.opacity(0.10), Color.primary.opacity(0.035)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// 概要のカード 1 枚ぶんの演出。
+/// - 画面を開いたとき、左上から順に少しずつ遅れてふわっと現れる
+/// - カーソルを乗せると浮き上がり、テーマ色で縁が光る
+private struct OverviewCard<Content: View>: View {
+    var index: Int
+    var color: Color
+    @ViewBuilder var content: Content
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+    @State private var hovering = false
+
+    var body: some View {
+        content
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(
+                        LinearGradient(colors: [color.opacity(hovering ? 0.9 : 0.35),
+                                                color.opacity(hovering ? 0.35 : 0.05)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: hovering ? 1.5 : 0.75)
+                    .allowsHitTesting(false)
+            )
+            .shadow(color: color.opacity(hovering ? 0.35 : 0), radius: hovering ? 12 : 0, y: hovering ? 4 : 0)
+            .scaleEffect(reduceMotion ? 1 : (hovering ? 1.015 : (appeared ? 1 : 0.94)))
+            .offset(y: reduceMotion || appeared ? 0 : 14)
+            .opacity(appeared ? 1 : 0)
+            .onHover { inside in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { hovering = inside }
+            }
+            .onAppear {
+                guard !appeared else { return }
+                withAnimation(reduceMotion ? nil
+                              : .spring(response: 0.55, dampingFraction: 0.78)
+                                .delay(Double(index) * 0.045)) {
+                    appeared = true
+                }
+            }
     }
 }
