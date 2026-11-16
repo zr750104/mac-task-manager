@@ -445,8 +445,9 @@ final class GaugeLayerView: NSView {
                                                   width: faceRadius * 1.76, height: faceRadius * 1.4),
                                 transform: nil)
 
-        // 振り切り中は演出の終わりの値のまま（ここで変えると演出の最後で針が飛ぶ）。
-        applyNeedle(CACurrentMediaTime() < ignitionEnd ? displayedRatio : ratio)
+        // 針の位置は変えない。新しい値へ動かすのは ignite() と moveNeedle() だけにして、
+        // 目盛りの倍率や色が変わった瞬間にも、針がばねで動くようにする。
+        applyNeedle(displayedRatio)
     }
 
     private func makeText(_ string: String, size: CGFloat, weight: NSFont.Weight,

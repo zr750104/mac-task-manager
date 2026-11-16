@@ -78,6 +78,8 @@ final class ChartLayerView: NSView {
     private var decorated = true
 
     private static let duration: CFTimeInterval = 0.45
+    /// 前回グラフをずらした時刻
+    private var lastShiftTime: CFTimeInterval = 0
 
     /// 計測の更新間隔。動きの長さをこれに合わせる。少し短めにして、次の値と重なりすぎないようにする。
     @MainActor private static var updateInterval: CFTimeInterval {
@@ -159,7 +161,12 @@ final class ChartLayerView: NSView {
         // 1 目盛り右にずれた位置から本来の位置へ滑らせる（描き直しはしない）。
         // 次の値が届くまでの時間いっぱいを使って一定の速さで流すと、
         // 止まらずに流れ続けるので更新のたびのカクつきが出ない。
-        let interval = Self.updateInterval
+        // 履歴の増え方は画面ごとに違う（温度は 2 秒ごとなど）ので、
+        // 前回ずれてからの実際の間隔を次の流れの長さに使う。
+        let now = CACurrentMediaTime()
+        let measured = now - lastShiftTime
+        lastShiftTime = now
+        let interval = (0.2...6).contains(measured) ? measured * 0.98 : Self.updateInterval
         let slide = CABasicAnimation(keyPath: "transform.translation.x")
         slide.fromValue = step + remainingSlide
         slide.toValue = 0
