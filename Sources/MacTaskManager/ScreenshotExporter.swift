@@ -58,6 +58,21 @@ enum ScreenshotExporter {
                 }
             }
 
+            // 概要のメーター表示。利用者の設定は書き出しのあとで元に戻す。
+            let defaults = UserDefaults.standard
+            let savedStyle = defaults.string(forKey: OverviewStyle.storageKey)
+            settings.selection = .overview
+            defaults.set(OverviewStyle.meter.rawValue, forKey: OverviewStyle.storageKey)
+            // 振り切りの演出が終わるのを待つ。
+            try? await Task.sleep(for: .seconds(3))
+            _ = capture(window: window,
+                        to: directory.appendingPathComponent("overview-meter.png"))
+            if let savedStyle {
+                defaults.set(savedStyle, forKey: OverviewStyle.storageKey)
+            } else {
+                defaults.removeObject(forKey: OverviewStyle.storageKey)
+            }
+
             // 小さくしたときの表示も 1 枚残す。
             // カードが途中で切れないよう、9 枚が 2 列 5 行で収まる大きさにしている。
             settings.selection = .overview
@@ -65,6 +80,18 @@ enum ScreenshotExporter {
             try? await Task.sleep(for: .seconds(2))
             _ = capture(window: window,
                         to: directory.appendingPathComponent("compact.png"))
+
+            // メーター表示を最小に近い大きさで。崩れていないかの確認用。
+            defaults.set(OverviewStyle.meter.rawValue, forKey: OverviewStyle.storageKey)
+            window.setContentSize(NSSize(width: 480, height: 320))
+            try? await Task.sleep(for: .seconds(3))
+            _ = capture(window: window,
+                        to: directory.appendingPathComponent("compact-meter.png"))
+            if let savedStyle {
+                defaults.set(savedStyle, forKey: OverviewStyle.storageKey)
+            } else {
+                defaults.removeObject(forKey: OverviewStyle.storageKey)
+            }
             print("完了")
             NSApp.terminate(nil)
         }

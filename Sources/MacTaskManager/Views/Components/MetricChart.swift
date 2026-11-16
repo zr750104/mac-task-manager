@@ -79,6 +79,11 @@ final class ChartLayerView: NSView {
 
     private static let duration: CFTimeInterval = 0.45
 
+    /// 計測の更新間隔。動きの長さをこれに合わせる。少し短めにして、次の値と重なりすぎないようにする。
+    @MainActor private static var updateInterval: CFTimeInterval {
+        AppSettings.shared.refreshRate.rawValue * 0.98
+    }
+
     override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
@@ -131,7 +136,10 @@ final class ChartLayerView: NSView {
                 showsGrid: Bool, gridRows: Int, gridColumns: Int,
                 lineWidth: CGFloat, decorated: Bool, animated: Bool) {
         let previousValues = values
-        let previousHeadY = headY()
+        // 動いている途中なら、今見えている位置から続ける（途中で飛ばないように）。
+        let previousHeadY = (head.presentation()?.position.y) ?? headY()
+        let remainingSlide = (content.presentation()?.value(forKeyPath: "transform.translation.x")
+            as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
         let shifted = animated && !previousValues.isEmpty
             && previousValues.count == newValues.count && previousValues != newValues
 
@@ -149,11 +157,14 @@ final class ChartLayerView: NSView {
         let step = bounds.width / CGFloat(max(1, values.count - 1))
 
         // 1 目盛り右にずれた位置から本来の位置へ滑らせる（描き直しはしない）。
+        // 次の値が届くまでの時間いっぱいを使って一定の速さで流すと、
+        // 止まらずに流れ続けるので更新のたびのカクつきが出ない。
+        let interval = Self.updateInterval
         let slide = CABasicAnimation(keyPath: "transform.translation.x")
-        slide.fromValue = step
+        slide.fromValue = step + remainingSlide
         slide.toValue = 0
-        slide.duration = Self.duration
-        slide.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        slide.duration = interval
+        slide.timingFunction = CAMediaTimingFunction(name: .linear)
         content.add(slide, forKey: "slide")
 
         guard decorated else { return }
@@ -161,8 +172,9 @@ final class ChartLayerView: NSView {
         let move = CABasicAnimation(keyPath: "position.y")
         move.fromValue = previousHeadY
         move.toValue = headY()
-        move.duration = Self.duration
-        move.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        // 線の右端と同じ速さで動かし、光点が線から浮かないようにする。
+        move.duration = interval
+        move.timingFunction = CAMediaTimingFunction(name: .linear)
         head.add(move, forKey: "move")
 
         // 波紋が広がって消える。

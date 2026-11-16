@@ -1,8 +1,29 @@
 import SwiftUI
 
+/// 概要の見せ方。グラフ（推移）か、車のメーター風（現在値）か。
+enum OverviewStyle: String, CaseIterable, Identifiable {
+    case chart, meter
+    var id: String { rawValue }
+    /// 保存先の UserDefaults のキー（画面書き出しからも使う）
+    static let storageKey = "overviewStyle"
+}
+
 struct OverviewPanel: View {
     @EnvironmentObject private var engine: MetricsEngine
     @Binding var selection: Panel
+    /// 毎秒変わるものではないので AppSettings ではなくここで保存する。
+    @AppStorage(OverviewStyle.storageKey) private var style: OverviewStyle = .chart
+
+    /// メーター表示のときの目盛り。
+    private struct GaugeSpec {
+        var ratio: Double
+        var redline: Double = 0.85
+        var available = true
+        /// 目盛りの数字の区切り数（0〜10 なら 10）
+        var intervals = 10
+        /// 文字盤の倍率表示（例：「×10 %」）
+        var multiplier: String? = "×10 %"
+    }
 
     /// 1 枚のカード。高さに余裕があるほど段階的に情報を増やす。
     private struct Card: Identifiable {
@@ -18,6 +39,10 @@ struct OverviewPanel: View {
         /// 最下段の 1 行
         var caption: String
         var content: AnyView
+        /// メーター表示の中身。nil のカードはメーター表示でもグラフ側の中身を使う。
+        var gauge: GaugeSpec? = nil
+        /// メーター表示でカード全体を差し替えたいときの中身（プロセスなど）
+        var meterContent: AnyView? = nil
     }
 
     var body: some View {
@@ -42,7 +67,7 @@ struct OverviewPanel: View {
                     spacing: spacing) {
                         ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
                             OverviewCard(index: index, color: card.color) {
-                                cardView(card, height: cardHeight)
+                                cardView(card, index: index, height: cardHeight)
                             }
                         }
                     }
@@ -83,7 +108,8 @@ struct OverviewPanel: View {
             } + [("負荷", String(format: "%.2f", cpu.loadAverage.first ?? 0))],
             caption: "ユーザ \(Fmt.percent(cpu.user, decimals: 0)) · システム \(Fmt.percent(cpu.system, decimals: 0)) · アイドル \(Fmt.percent(cpu.idle, decimals: 0))",
             content: AnyView(MetricChart(values: engine.cpuHistory.padded, maxValue: 1,
-                                         color: Palette.cpu, gridRows: 2, gridColumns: 4))))
+                                         color: Palette.cpu, gridRows: 2, gridColumns: 4)),
+            gauge: GaugeSpec(ratio: cpu.total)))
 
         // メモリ
         let memory = snapshot.memory
@@ -95,7 +121,8 @@ struct OverviewPanel: View {
                       ("スワップ", Fmt.bytes(memory.swapUsed))],
             caption: "圧縮 \(Fmt.bytes(memory.compressed)) · 確保済み \(Fmt.bytes(memory.wired)) · プレッシャー \(memory.pressureLevel.label)",
             content: AnyView(MetricChart(values: engine.memoryHistory.padded, maxValue: 1,
-                                         color: Palette.memory, gridRows: 2, gridColumns: 4))))
+                                         color: Palette.memory, gridRows: 2, gridColumns: 4)),
+            gauge: GaugeSpec(ratio: memory.usedRatio)))
 
         // GPU
         let gpu = snapshot.gpu
@@ -107,7 +134,8 @@ struct OverviewPanel: View {
                       ("メモリ", Fmt.bytes(gpu.inUseMemory))],
             caption: "\(engine.info.gpuCoreCount) コア · 割り当て \(Fmt.bytes(gpu.allocatedMemory))",
             content: AnyView(MetricChart(values: engine.gpuHistory.padded, maxValue: 1,
-                                         color: Palette.gpu, gridRows: 2, gridColumns: 4))))
+                                         color: Palette.gpu, gridRows: 2, gridColumns: 4)),
+            gauge: GaugeSpec(ratio: gpu.utilization, available: gpu.available)))
 
         // 温度
         let temperature = engine.temperature
@@ -124,7 +152,11 @@ struct OverviewPanel: View {
                 : "温度センサーを取得できません",
             content: AnyView(MetricChart(values: engine.temperatureHistory.padded, maxValue: 110,
                                          color: Palette.heat(temperature.socMax),
-                                         gridRows: 2, gridColumns: 4))))
+                                         gridRows: 2, gridColumns: 4)),
+            gauge: GaugeSpec(ratio: temperature.socMax / Self.temperatureCeiling,
+                             redline: 95 / Self.temperatureCeiling,
+                             available: temperature.available,
+                             intervals: 11, multiplier: "×10 ℃")))
 
         // 電力
         let power = snapshot.power
@@ -138,7 +170,9 @@ struct OverviewPanel: View {
                 ? String(format: "P コア %.2fW · E コア %.2fW", power.performanceCores, power.efficiencyCores)
                 : "消費電力を取得できません",
             content: AnyView(MetricChart(values: engine.powerHistory.padded, maxValue: nil,
-                                         color: Palette.gpu, gridRows: 2, gridColumns: 4))))
+                                         color: Palette.gpu, gridRows: 2, gridColumns: 4)),
+            gauge: wattGauge(power.cpu + power.gpu, history: engine.powerHistory.padded,
+                             available: power.available)))
 
         // Neural Engine（NPU）
         let ane = snapshot.neuralEngine
@@ -151,7 +185,8 @@ struct OverviewPanel: View {
             caption: String(format: "基準 %.2f W に対する比率 · GPU 使用率とは別物です", ane.referencePeak),
             content: AnyView(MetricChart(values: engine.neuralEngineUtilizationHistory.padded,
                                          maxValue: 1, color: Palette.efficiencyCore,
-                                         gridRows: 2, gridColumns: 4))))
+                                         gridRows: 2, gridColumns: 4)),
+            gauge: GaugeSpec(ratio: ane.utilization)))
 
         // ディスク
         let disk = snapshot.disk
@@ -165,7 +200,11 @@ struct OverviewPanel: View {
             content: AnyView(DualMetricChart(primary: engine.diskReadHistory.padded,
                                              secondary: engine.diskWriteHistory.padded,
                                              primaryColor: Palette.disk,
-                                             secondaryColor: Palette.upload, maxValue: nil))))
+                                             secondaryColor: Palette.upload, maxValue: nil)),
+            gauge: rateGauge(disk.readRate + disk.writeRate,
+                             history: Self.sum(engine.diskReadHistory.padded,
+                                               engine.diskWriteHistory.padded),
+                             floor: 1024 * 1024)))
 
         // ネットワーク
         let network = snapshot.network
@@ -179,7 +218,11 @@ struct OverviewPanel: View {
             content: AnyView(DualMetricChart(primary: engine.networkDownHistory.padded,
                                              secondary: engine.networkUpHistory.padded,
                                              primaryColor: Palette.network,
-                                             secondaryColor: Palette.upload, maxValue: nil))))
+                                             secondaryColor: Palette.upload, maxValue: nil)),
+            gauge: rateGauge(network.downloadRate + network.uploadRate,
+                             history: Self.sum(engine.networkDownHistory.padded,
+                                               engine.networkUpHistory.padded),
+                             floor: 1024 * 1024)))
 
         // 上位プロセス
         let top = engine.topProcesses(by: \.cpuPercent, limit: 4)
@@ -191,7 +234,8 @@ struct OverviewPanel: View {
             caption: engine.processes.isEmpty
                 ? "収集中…"
                 : "全 \(engine.processes.count) プロセス · スレッド \(Fmt.count(engine.processes.reduce(0) { $0 + $1.threads }))",
-            content: AnyView(processList(top))))
+            content: AnyView(processList(top)),
+            meterContent: AnyView(processGauges(top))))
 
         // ストレージ容量
         list.append(Card(
@@ -199,7 +243,10 @@ struct OverviewPanel: View {
             value: storageValue,
             details: [],
             caption: "ボリューム \(disk.volumes.count) 個 · 物理ディスク \(disk.disks.count) 台",
-            content: AnyView(volumeList(disk.volumes))))
+            content: AnyView(volumeList(disk.volumes)),
+            gauge: disk.volumes.first.map {
+                GaugeSpec(ratio: $0.usedRatio, redline: 0.9)
+            }))
 
         // バッテリー（ノート型のみ）
         let battery = engine.battery
@@ -216,6 +263,43 @@ struct OverviewPanel: View {
         }
 
         return list
+    }
+
+    /// 温度メーターの上限（℃）。Apple Silicon はおおむね 100℃ 付近で性能を落とす。
+    private static let temperatureCeiling = 110.0
+
+    /// 消費電力のメーター。直近 2 分の最大値から目盛りを決める（下限 10 W）。
+    private func wattGauge(_ value: Double, history: [Double], available: Bool) -> GaugeSpec {
+        let ceiling = max(10, ChartScale.ceiling(maxValue: nil, values: history + [value]))
+        return GaugeSpec(ratio: value / ceiling, available: available,
+                         multiplier: "×" + Self.trimmed(ceiling / 10) + " W")
+    }
+
+    /// 転送速度のメーター。直近 2 分の最大値から目盛りを決める。
+    /// 表示の数値と同じ 1024 進の単位で切りのいい上限にし、文字盤の倍率と数値が食い違わないようにする。
+    /// 待機中のわずかな変動で針が暴れないよう、上限には下限を設けている。
+    private func rateGauge(_ value: Double, history: [Double], floor: Double) -> GaugeSpec {
+        let units = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"]
+        let peak = max(floor, (history + [value]).max() ?? 0)
+        var unit = 0
+        var unitSize = 1.0
+        while peak / unitSize >= 1024, unit < units.count - 1 {
+            unitSize *= 1024
+            unit += 1
+        }
+        let ceilingInUnit = ChartScale.ceiling(maxValue: nil, values: [peak / unitSize])
+        return GaugeSpec(ratio: value / (ceilingInUnit * unitSize),
+                         multiplier: "×" + Self.trimmed(ceilingInUnit / 10) + " " + units[unit])
+    }
+
+    /// 0.5 → "0.5"、10 → "10" のように余計な 0 を付けない。
+    private static func trimmed(_ value: Double) -> String {
+        value.rounded() == value ? String(format: "%.0f", value) : String(format: "%g", value)
+    }
+
+    /// カードの値は読み＋書き（受信＋送信）の合計なので、目盛りも合計の履歴から決める。
+    private static func sum(_ a: [Double], _ b: [Double]) -> [Double] {
+        zip(a, b).map { $0 + $1 }
     }
 
     private var diskCaption: String {
@@ -259,6 +343,38 @@ struct OverviewPanel: View {
                     }
                 }
                 Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// 上位 4 件を小さなメーターで並べる。順位で識別して、入れ替わってもメーターを作り直さない。
+    private func processGauges(_ rows: [ProcessRow]) -> some View {
+        HStack(spacing: 4) {
+            ForEach(0..<4, id: \.self) { rank in
+                let row = rank < rows.count ? rows[rank] : nil
+                VStack(spacing: 1) {
+                    // プロセスの CPU 使用率は 1 コアぶんを 100% とする（複数コアで 100% を超える）。
+                    MetricGauge(ratio: (row?.cpuPercent ?? 0) / 100, color: Palette.cpu,
+                                available: row != nil, compact: true,
+                                ignitionDelay: Double(rank) * 0.06)
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Text(row.map { Fmt.cpuPercent($0.cpuPercent) } ?? "—")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                    HStack(spacing: 2) {
+                        if let row {
+                            AppIconView(bundlePath: row.appBundlePath, isApp: row.isGUIApp, size: 10)
+                        }
+                        Text(row?.name ?? " ")
+                            .font(.system(size: 8))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -318,6 +434,18 @@ struct OverviewPanel: View {
                     .minimumScaleFactor(0.7)
             }
             Spacer(minLength: 4)
+            Picker("表示", selection: $style) {
+                Image(systemName: "chart.xyaxis.line")
+                    .help("グラフ表示")
+                    .tag(OverviewStyle.chart)
+                Image(systemName: "gauge.with.needle")
+                    .help("メーター表示")
+                    .tag(OverviewStyle.meter)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .help("グラフ表示とメーター表示を切り替えます")
             Button {
                 selection = .processes
             } label: {
@@ -331,10 +459,12 @@ struct OverviewPanel: View {
         }
     }
 
-    private func cardView(_ card: Card, height: CGFloat) -> some View {
+    private func cardView(_ card: Card, index: Int, height: CGFloat) -> some View {
         // 高さに応じて出す情報を切り替える。狭いときは値とグラフだけにする。
         let showsDetails = height >= 150 && !card.details.isEmpty
         let showsCaption = height >= 118
+        let meter = style == .meter
+        let gauge = meter ? card.gauge : nil
 
         return Button {
             selection = card.panel
@@ -350,17 +480,29 @@ struct OverviewPanel: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                     Spacer(minLength: 2)
-                    Text(card.value)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
+                    // メーター表示では数値をメーターの横に大きく出す。
+                    if gauge == nil {
+                        Text(card.value)
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                    }
                 }
 
-                card.content
-                    .frame(maxHeight: .infinity)
+                Group {
+                    if let gauge {
+                        meterBody(card, gauge: gauge, index: index)
+                    } else if meter, let meterContent = card.meterContent {
+                        meterContent
+                    } else {
+                        card.content
+                    }
+                }
+                .frame(maxHeight: .infinity)
 
-                if showsDetails {
+                // メーター表示では内訳をメーターの横に並べるので、下の段には出さない。
+                if showsDetails && gauge == nil {
                     HStack(spacing: 0) {
                         ForEach(Array(card.details.enumerated()), id: \.offset) { _, detail in
                             VStack(alignment: .leading, spacing: 0) {
@@ -398,6 +540,40 @@ struct OverviewPanel: View {
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
+    }
+}
+
+extension OverviewPanel {
+    /// メーター表示のカードの中身。左にメーター、右に大きな数値と内訳を並べる。
+    private func meterBody(_ card: Card, gauge: GaugeSpec, index: Int) -> some View {
+        HStack(spacing: 12) {
+            MetricGauge(ratio: gauge.ratio, color: card.color, redline: gauge.redline,
+                        available: gauge.available, intervals: gauge.intervals,
+                        multiplier: gauge.multiplier, ignitionDelay: Double(index) * 0.045)
+                .aspectRatio(1, contentMode: .fit)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(card.value)
+                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                ForEach(Array(card.details.enumerated()), id: \.offset) { _, detail in
+                    HStack(spacing: 6) {
+                        Text(detail.0)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(detail.1)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .font(.system(size: 10))
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
