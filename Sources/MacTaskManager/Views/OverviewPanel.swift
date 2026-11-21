@@ -43,6 +43,8 @@ struct OverviewPanel: View {
         var gauge: GaugeSpec? = nil
         /// メーター表示でカード全体を差し替えたいときの中身（プロセスなど）
         var meterContent: AnyView? = nil
+        /// 最後の行が埋まらないとき、空いた枠まで横に広げる（最後のカードだけが対象）
+        var expandsToFill = false
     }
 
     var body: some View {
@@ -61,16 +63,25 @@ struct OverviewPanel: View {
 
             VStack(alignment: .leading, spacing: spacing) {
                 header.frame(height: headerHeight - spacing)
-                let grid = LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: spacing),
-                                   count: columns),
-                    spacing: spacing) {
-                        ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
-                            OverviewCard(index: index, color: card.color) {
-                                cardView(card, index: index, height: cardHeight)
+                // 最後の行が埋まらないとき、最後のカード（デバイスのバッテリー）を空いた枠まで広げる。
+                // LazyVGrid では 1 枚だけ複数の列にまたがらせられないので、行ごとに並べている。
+                let cellWidth = max(0, (geometry.size.width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
+                let numbered = Array(cards.enumerated())
+                let grid = VStack(alignment: .leading, spacing: spacing) {
+                    ForEach(0..<rows, id: \.self) { row in
+                        let rowCards = Array(numbered[(row * columns)..<min((row + 1) * columns, numbered.count)])
+                        HStack(spacing: spacing) {
+                            ForEach(rowCards, id: \.element.id) { index, card in
+                                let span = index == cards.count - 1 && card.expandsToFill
+                                    ? columns - (rowCards.count - 1) : 1
+                                OverviewCard(index: index, color: card.color) {
+                                    cardView(card, index: index, height: cardHeight)
+                                }
+                                .frame(width: cellWidth * CGFloat(span) + spacing * CGFloat(span - 1))
                             }
                         }
                     }
+                }
                 if fits {
                     grid
                 } else {
@@ -248,22 +259,6 @@ struct OverviewPanel: View {
                 GaugeSpec(ratio: $0.usedRatio, redline: 0.9)
             }))
 
-        // つないでいる機器のバッテリー（iPhone・iPad・AirPods など）
-        // クリックすると、Mac 本体のバッテリーもある「温度・電力」画面へ移る。
-        let devices = engine.devices
-        let liveCount = devices.filter { !$0.isStale }.count
-        list.append(Card(
-            panel: .temperature, title: "デバイスのバッテリー", icon: "battery.75percent",
-            color: Palette.disk,
-            // 台数は今つながっている機器だけ数える（「前回の値」の機器は含めない）。
-            value: devices.isEmpty ? "—" : "接続 \(liveCount) 台",
-            details: [],
-            caption: devices.isEmpty
-                ? "iPhone・iPad（USB / Wi-Fi）や Apple Watch、AirPods などを表示します"
-                : "iPhone・iPad・Apple Watch と Bluetooth 機器 · 30 秒ごと（Apple Watch は 3 分ごと）に更新",
-            content: AnyView(deviceList(devices)),
-            meterContent: AnyView(deviceGauges(devices))))
-
         // バッテリー（ノート型のみ）
         let battery = engine.battery
         if battery.available {
@@ -277,6 +272,24 @@ struct OverviewPanel: View {
                     + (battery.temperature.map { String(format: " · %.0f℃", $0) } ?? ""),
                 content: AnyView(batteryGauge(battery))))
         }
+
+        // つないでいる機器のバッテリー（iPhone・iPad・AirPods など）。
+        // 最後の行の空いた枠まで広げるので、常に最後のカードにする。
+        // クリックすると、Mac 本体のバッテリーもある「温度・電力」画面へ移る。
+        let devices = engine.devices
+        let liveCount = devices.filter { !$0.isStale }.count
+        list.append(Card(
+            panel: .temperature, title: "デバイスのバッテリー", icon: "battery.75percent",
+            color: Palette.disk,
+            // 台数は今つながっている機器だけ数える（「前回の値」の機器は含めない）。
+            value: devices.isEmpty ? "—" : "接続 \(liveCount) 台",
+            details: [],
+            caption: devices.isEmpty
+                ? "iPhone・iPad（USB / Wi-Fi）や Apple Watch、AirPods などを表示します"
+                : "iPhone・iPad・Apple Watch と Bluetooth 機器 · 30 秒ごと（Apple Watch は 3 分ごと）に更新",
+            content: AnyView(deviceList(devices)),
+            meterContent: AnyView(deviceGauges(devices)),
+            expandsToFill: true))
 
         return list
     }
