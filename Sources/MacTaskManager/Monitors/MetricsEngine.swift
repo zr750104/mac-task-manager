@@ -93,6 +93,8 @@ final class MetricsEngine: ObservableObject {
     @Published private(set) var temperature = TemperatureSample()
     @Published private(set) var battery = BatterySample()
     @Published private(set) var startup = StartupSample()
+    /// USB の iPhone / iPad や Bluetooth 機器のバッテリー。変化したときだけ更新される。
+    @Published private(set) var devices: [DeviceBattery] = []
     @Published private(set) var thermalState: ProcessInfo.ThermalState = .nominal
 
     // グラフ用の時系列
@@ -126,7 +128,10 @@ final class MetricsEngine: ObservableObject {
     /// 起動項目も plist の走査が必要なので、表示中のときだけ更新する。
     @Published var isStartupTabVisible = false
     /// 概要画面では上位プロセスだけ使うので、粗い間隔で収集する。
-    @Published var isOverviewVisible = false
+    /// 周辺機器のバッテリーも概要でだけ表示するので、表示中だけ調べる。
+    @Published var isOverviewVisible = false {
+        didSet { DeviceBatteryMonitor.shared.isActive = isOverviewVisible }
+    }
     /// メモリ画面でもアプリ別の内訳を出すため、粗い間隔で収集する。
     @Published var isMemoryTabVisible = false
 
@@ -141,6 +146,7 @@ final class MetricsEngine: ObservableObject {
     init() {
         cpuClusterHistory = info.clusters.map { _ in History(capacity: Self.historyLength) }
         coreHistories = (0..<info.logicalCores).map { _ in History(capacity: Self.historyLength) }
+        DeviceBatteryMonitor.shared.onChange = { [weak self] devices in self?.devices = devices }
         start()
     }
 

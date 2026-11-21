@@ -15,6 +15,8 @@ struct MetricGauge: NSViewRepresentable {
     var color: Color
     /// ここから上がレッドゾーン（0〜1）
     var redline: Double = 0.85
+    /// true なら「少ないほど危ない」向き（バッテリー残量など）。0〜redline がレッドゾーンになる。
+    var lowZone = false
     /// 値を取得できないときは針を 0 に置いて暗く表示する。
     var available = true
     /// 小さいメーター用。数字や倍率表示を省く。
@@ -29,7 +31,7 @@ struct MetricGauge: NSViewRepresentable {
     func makeNSView(context: Context) -> GaugeLayerView { GaugeLayerView() }
 
     func updateNSView(_ view: GaugeLayerView, context: Context) {
-        view.update(ratio: ratio, color: NSColor(color), redline: redline,
+        view.update(ratio: ratio, color: NSColor(color), redline: redline, lowZone: lowZone,
                     available: available, compact: compact, intervals: intervals,
                     multiplier: multiplier, ignitionDelay: ignitionDelay,
                     animated: !context.environment.accessibilityReduceMotion)
@@ -69,6 +71,7 @@ final class GaugeLayerView: NSView {
     private var displayedRatio: CGFloat = 0
     private var color = NSColor.systemBlue
     private var redline: CGFloat = 0.85
+    private var lowZone = false
     private var available = true
     private var compact = false
     private var intervals = 10
@@ -142,11 +145,12 @@ final class GaugeLayerView: NSView {
     // MARK: - 更新
 
     func update(ratio newRatio: Double, color newColor: NSColor, redline newRedline: Double,
+                lowZone newLowZone: Bool = false,
                 available newAvailable: Bool, compact newCompact: Bool, intervals newIntervals: Int,
                 multiplier newMultiplier: String?, ignitionDelay delay: Double, animated newAnimated: Bool) {
         let target = newAvailable && newRatio.isFinite ? CGFloat(min(1, max(0, newRatio))) : 0
         let clampedRedline = CGFloat(min(1, max(0, newRedline)))
-        let styleChanged = newColor != color || clampedRedline != redline
+        let styleChanged = newColor != color || clampedRedline != redline || newLowZone != lowZone
             || newAvailable != available || newCompact != compact
             || newIntervals != intervals || newMultiplier != multiplier
         // 作り直しの前に、今見えている針の角度を取っておく（作り直すとモデル値が変わるため）。
@@ -154,6 +158,7 @@ final class GaugeLayerView: NSView {
         ratio = target
         color = newColor
         redline = clampedRedline
+        lowZone = newLowZone
         available = newAvailable
         compact = newCompact
         intervals = max(1, newIntervals)
@@ -263,7 +268,7 @@ final class GaugeLayerView: NSView {
     private func applyNeedle(_ value: CGFloat) {
         needle.setValue(Self.rotation(for: value), forKeyPath: "transform.rotation.z")
         displayedRatio = value
-        let lit = available && value >= redline
+        let lit = available && isInRedZone(value)
         lamp.fillColor = lit ? NSColor(red: 1, green: 0.2, blue: 0.12, alpha: 1).cgColor
                              : NSColor(red: 0.32, green: 0.06, blue: 0.05, alpha: 1).cgColor
         lamp.strokeColor = lit ? NSColor(red: 1, green: 0.45, blue: 0.35, alpha: 0.9).cgColor
@@ -334,7 +339,7 @@ final class GaugeLayerView: NSView {
             let value = CGFloat(step) / CGFloat(steps)
             let isMajor = step % minorPerMajor == 0
             let length = isMajor ? faceRadius * 0.15 : faceRadius * 0.07
-            let target: CGMutablePath = value >= redline - 0.0001 ? redPath : (isMajor ? majorPath : minorPath)
+            let target: CGMutablePath = isInRedZone(value) ? redPath : (isMajor ? majorPath : minorPath)
             let theta = Self.angle(for: value)
             target.move(to: point(center, tickOuter, theta))
             target.addLine(to: point(center, tickOuter - length, theta))
@@ -352,9 +357,10 @@ final class GaugeLayerView: NSView {
         // レッドゾーン：目盛りの外側に沿った赤い帯
         let redWidth = max(1.5, faceRadius * 0.05)
         let redPathArc = CGMutablePath()
-        if redline < 1 {
+        let redRange: (CGFloat, CGFloat) = lowZone ? (0, redline) : (redline, 1)
+        if redRange.1 > redRange.0 {
             redPathArc.addArc(center: center, radius: tickOuter + redWidth * 0.2,
-                              startAngle: Self.angle(for: redline), endAngle: Self.angle(for: 1),
+                              startAngle: Self.angle(for: redRange.0), endAngle: Self.angle(for: redRange.1),
                               clockwise: true)
         }
         redArc.path = redPathArc
@@ -371,7 +377,7 @@ final class GaugeLayerView: NSView {
             let every = faceRadius < 58 ? 2 : 1
             for index in stride(from: 0, through: intervals, by: every) {
                 let value = CGFloat(index) / CGFloat(intervals)
-                let red = value >= redline - 0.0001
+                let red = isInRedZone(value)
                 let text = makeText("\(index)", size: fontSize, weight: .semibold,
                                     color: red ? NSColor(red: 1, green: 0.3, blue: 0.22, alpha: 1)
                                                : NSColor(white: 0.93, alpha: 1),
@@ -448,6 +454,11 @@ final class GaugeLayerView: NSView {
         // 針の位置は変えない。新しい値へ動かすのは ignite() と moveNeedle() だけにして、
         // 目盛りの倍率や色が変わった瞬間にも、針がばねで動くようにする。
         applyNeedle(displayedRatio)
+    }
+
+    /// レッドゾーンの中か。目盛りの境目ちょうども含める。
+    private func isInRedZone(_ value: CGFloat) -> Bool {
+        lowZone ? value <= redline + 0.0001 : value >= redline - 0.0001
     }
 
     private func makeText(_ string: String, size: CGFloat, weight: NSFont.Weight,

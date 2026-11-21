@@ -18,6 +18,8 @@ enum ScreenshotExporter {
     }
 
     static func run(directory: URL, engine: MetricsEngine, settings: AppSettings) {
+        // 書き出した画像は公開資料に載るので、機器名（本名が入りやすい）を一般名にする。
+        DeviceBatteryMonitor.anonymizesNames = true
         Task { @MainActor in
             try? FileManager.default.createDirectory(at: directory,
                                                      withIntermediateDirectories: true)
@@ -74,9 +76,9 @@ enum ScreenshotExporter {
             }
 
             // 小さくしたときの表示も 1 枚残す。
-            // カードが途中で切れないよう、9 枚が 2 列 5 行で収まる大きさにしている。
+            // カードが途中で切れないよう、11 枚が 2 列 6 行で収まる大きさにしている。
             settings.selection = .overview
-            window.setContentSize(NSSize(width: 660, height: 660))
+            window.setContentSize(NSSize(width: 660, height: 760))
             try? await Task.sleep(for: .seconds(2))
             _ = capture(window: window,
                         to: directory.appendingPathComponent("compact.png"))

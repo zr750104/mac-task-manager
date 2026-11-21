@@ -80,7 +80,7 @@ struct OverviewPanel: View {
         }
     }
 
-    /// 列数。カードは 10 枚（ノート型はバッテリーを加えて 11 枚）。
+    /// 列数。カードは 11 枚（ノート型は Mac 自身のバッテリーを加えて 12 枚）。
     /// 1 枚のカードが狭くなりすぎないよう、3 列を使う幅を広めに取っている。
     private func columnCount(for width: CGFloat) -> Int {
         switch width {
@@ -248,6 +248,22 @@ struct OverviewPanel: View {
                 GaugeSpec(ratio: $0.usedRatio, redline: 0.9)
             }))
 
+        // つないでいる機器のバッテリー（iPhone・iPad・AirPods など）
+        // クリックすると、Mac 本体のバッテリーもある「温度・電力」画面へ移る。
+        let devices = engine.devices
+        let liveCount = devices.filter { !$0.isStale }.count
+        list.append(Card(
+            panel: .temperature, title: "デバイスのバッテリー", icon: "battery.75percent",
+            color: Palette.disk,
+            // 台数は今つながっている機器だけ数える（「前回の値」の機器は含めない）。
+            value: devices.isEmpty ? "—" : "接続 \(liveCount) 台",
+            details: [],
+            caption: devices.isEmpty
+                ? "iPhone・iPad（USB / Wi-Fi）や AirPods などを表示します"
+                : "iPhone・iPad（USB / Wi-Fi）と Bluetooth 機器 · 30 秒ごとに更新",
+            content: AnyView(deviceList(devices)),
+            meterContent: AnyView(deviceGauges(devices))))
+
         // バッテリー（ノート型のみ）
         let battery = engine.battery
         if battery.available {
@@ -375,6 +391,126 @@ struct OverviewPanel: View {
                     .frame(maxWidth: .infinity)
                 }
                 .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private static func deviceColor(_ level: Double) -> Color {
+        // メーターのレッドゾーン（20% 以下）と揃える。
+        level <= 0.2 ? .red : (level < 0.5 ? Palette.gpu : Palette.disk)
+    }
+
+    /// 機器ごとの残量。読める機器が無いときは案内を出す。
+    private func deviceList(_ devices: [DeviceBattery]) -> some View {
+        // カードの高さに入る行数だけ出す（1 行はおよそ 22pt）。全体の台数はカード右上に出ている。
+        GeometryReader { geometry in
+            let rowHeight: CGFloat = 22
+            let fits = max(1, min(4, Int((geometry.size.height + 3) / rowHeight)))
+            let shown = min(devices.count, fits)
+            let showsMore = devices.count > shown
+                && CGFloat(shown) * rowHeight + 12 <= geometry.size.height
+            deviceRows(devices, shown: shown, showsMore: showsMore)
+        }
+    }
+
+    private func deviceRows(_ devices: [DeviceBattery], shown: Int, showsMore: Bool) -> some View {
+        VStack(spacing: 3) {
+            if devices.isEmpty {
+                Spacer(minLength: 0)
+                Text("iPhone や iPad を USB でつなぐか、Finder で「Wi-Fi 接続時にこのデバイスを表示」を有効にすると残量が表示されます")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            } else {
+                // 並びは今の値が先。入りきらない分は件数だけ出す。
+                ForEach(devices.prefix(shown)) { device in
+                    VStack(spacing: 1) {
+                        HStack(spacing: 5) {
+                            Image(systemName: device.kind.symbol)
+                                .font(.caption2)
+                                .frame(width: 13)
+                                .foregroundStyle(.secondary)
+                            Text(device.name)
+                                .font(.caption2)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .layoutPriority(1)
+                            Text(device.subtitle)
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer(minLength: 4)
+                            if device.isCharging {
+                                Image(systemName: "bolt.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.yellow)
+                            }
+                            Text(Fmt.percent(device.level, decimals: 0))
+                                .font(.caption2.weight(.medium))
+                                .monospacedDigit()
+                                .fixedSize()
+                        }
+                        UsageBar(ratio: device.level, color: Self.deviceColor(device.level), height: 4)
+                    }
+                    // 古い値（未接続の機器の前回の値）は薄く出す。
+                    .opacity(device.isStale ? 0.5 : 1)
+                }
+                if showsMore {
+                    Text("ほか \(devices.count - shown) 台")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// メーター表示。残量は少ないほど危ないので、0〜20% をレッドゾーンにする。
+    /// 枠は位置で識別し、機器が増減してもメーターを作り直さない。
+    private func deviceGauges(_ devices: [DeviceBattery]) -> some View {
+        HStack(spacing: 4) {
+            ForEach(0..<4, id: \.self) { slot in
+                let device = slot < devices.count ? devices[slot] : nil
+                VStack(spacing: 1) {
+                    MetricGauge(ratio: device?.level ?? 0, color: Palette.disk, redline: 0.2,
+                                lowZone: true, available: device != nil, compact: true,
+                                ignitionDelay: Double(slot) * 0.06)
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    HStack(spacing: 2) {
+                        if device?.isCharging == true {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.yellow)
+                        }
+                        Text(device.map { Fmt.percent($0.level, decimals: 0) } ?? "—")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                    }
+                    .lineLimit(1)
+                    HStack(spacing: 2) {
+                        if let device {
+                            Image(systemName: device.kind.symbol)
+                                .font(.system(size: 8))
+                        }
+                        Text(device?.name ?? " ")
+                            .font(.system(size: 8))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .frame(maxWidth: .infinity)
+                    // どの機器か分かるよう、機種名も添える（無ければ接続の種類）。
+                    Text(device.map { $0.isStale ? "前回の値" : ($0.model ?? $0.connection) } ?? " ")
+                        .font(.system(size: 7))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(maxWidth: .infinity)
+                .opacity(device?.isStale == true ? 0.5 : 1)
             }
         }
     }

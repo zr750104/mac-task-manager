@@ -108,6 +108,14 @@ struct ContentView: View {
             engine.isOverviewVisible = (selection == .overview)
             engine.isMemoryTabVisible = (selection == .memory)
         }
+        .onDisappear {
+            // ウインドウを閉じたら、表示中の画面のためだけの収集
+            // （周辺機器との通信や system_profiler など）を止める。
+            engine.isProcessTabVisible = false
+            engine.isStartupTabVisible = false
+            engine.isOverviewVisible = false
+            engine.isMemoryTabVisible = false
+        }
     }
 
     @ViewBuilder
