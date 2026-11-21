@@ -260,7 +260,7 @@ struct OverviewPanel: View {
             details: [],
             caption: devices.isEmpty
                 ? "iPhone・iPad（USB / Wi-Fi）や Apple Watch、AirPods などを表示します"
-                : "iPhone・iPad・Apple Watch と Bluetooth 機器 · 30 秒ごとに更新",
+                : "iPhone・iPad・Apple Watch と Bluetooth 機器 · 30 秒ごと（Apple Watch は 3 分ごと）に更新",
             content: AnyView(deviceList(devices)),
             meterContent: AnyView(deviceGauges(devices))))
 
