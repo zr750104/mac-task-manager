@@ -103,6 +103,8 @@ final class DeviceBatteryMonitor {
     /// USB / Wi-Fi でつながっている機器（MobileDevice のポインタ。1 つずつ retain 済み）
     private var mobileDevices: [UnsafeMutableRawPointer] = []
     private var mobileResults: [UnsafeMutableRawPointer: DeviceBattery] = [:]
+    /// 機器の識別子と接続の種類。同じ機器が別のポインタで届いても取り違えないよう、これで照合する。
+    private var mobileKeys: [UnsafeMutableRawPointer: String] = [:]
     /// 最後に読めた時刻（Wi-Fi で読めない状態が続いたかの判定用）
     private var lastRead: [UnsafeMutableRawPointer: Date] = [:]
     /// 読み取り中の機器。応答の遅い機器で読み取りが積み重ならないようにする。
@@ -139,10 +141,14 @@ final class DeviceBatteryMonitor {
     }
 
     private func publish() {
-        // 同じ機器が USB と Wi-Fi の両方で届くことがあるので、USB を優先して 1 台にまとめる。
+        // 同じ機器が USB と Wi-Fi の両方で届くことがあるので 1 台にまとめる。
+        // 優先は「USB」、次に「古い値でないほう」。辞書の順番に左右されないようにする。
+        func rank(_ device: DeviceBattery) -> Int {
+            (device.connection == "USB" ? 2 : 0) + (device.isStale ? 0 : 1)
+        }
         var mobileByID: [String: DeviceBattery] = [:]
         for device in mobileResults.values {
-            if let existing = mobileByID[device.id], existing.connection == "USB" { continue }
+            if let existing = mobileByID[device.id], rank(existing) >= rank(device) { continue }
             mobileByID[device.id] = device
         }
         // Bluetooth も同じ id（同じ機器）が重なったら、今の値を優先する。
@@ -184,26 +190,43 @@ final class DeviceBatteryMonitor {
     /// device は通知のコールバックの中で 1 つ retain 済み。ここで持ち続けるか解放する。
     fileprivate func handle(device: UnsafeMutableRawPointer, message: UInt32) {
         guard let api = mobile else { return }
+        // 識別子は機器に接続しなくても取れる。取れなければポインタで代用する。
+        let identifier = api.copyIdentifier(device)?.takeRetainedValue() as String?
+            ?? "pointer-\(UInt(bitPattern: device))"
+        let key = identifier + "#" + String(api.interfaceType(device))
         switch message {
         case 1:
             guard !mobileDevices.contains(device) else {
                 api.release(device)
                 return
             }
+            // 同じ機器・同じ接続の種類で前のポインタが残っていたら（切断の通知が来なかったなど）、そちらを外す。
+            if let old = mobileDevices.first(where: { mobileKeys[$0] == key }) { remove(old) }
             mobileDevices.append(device)
+            mobileKeys[device] = key
             // 概要を見ていないときは読まない（表示したときにまとめて読む）。
             if isActive { readMobile(device) }
         case 2:
             api.release(device)
-            guard let index = mobileDevices.firstIndex(of: device) else { return }
-            mobileDevices.remove(at: index)
-            mobileResults[device] = nil
-            lastRead[device] = nil
-            api.release(device)
-            publish()
+            // 接続のときと別のポインタで届いても外せるよう、識別子でも探す。
+            if let known = mobileDevices.first(where: { $0 == device })
+                ?? mobileDevices.first(where: { mobileKeys[$0] == key }) {
+                remove(known)
+                publish()
+            }
         default:
             api.release(device)
         }
+    }
+
+    /// 一覧から外し、持っていた retain を返す。
+    private func remove(_ device: UnsafeMutableRawPointer) {
+        guard let index = mobileDevices.firstIndex(of: device) else { return }
+        mobileDevices.remove(at: index)
+        mobileResults[device] = nil
+        mobileKeys[device] = nil
+        lastRead[device] = nil
+        mobile?.release(device)
     }
 
     private func readMobile(_ device: UnsafeMutableRawPointer) {
