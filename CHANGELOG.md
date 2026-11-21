@@ -6,7 +6,7 @@
 
 ### 追加
 
-- **概要のデバイスのバッテリー** — iPhone・iPad（USB / Wi-Fi）と AirPods など Bluetooth 機器の残量を表示。
+- **概要のデバイスのバッテリー** — iPhone・iPad（USB / Wi-Fi）、iPhone 経由の Apple Watch、AirPods など Bluetooth 機器の残量を表示。
   機器名に加えて機種名と接続の種類を出す。未接続の機器は「前回の値」として薄く表示
 
 ### 変更

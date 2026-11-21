@@ -3,7 +3,7 @@ import Foundation
 /// Mac につながっている周辺機器 1 台ぶんのバッテリー。
 struct DeviceBattery: Identifiable, Equatable, Sendable {
     enum Kind: Int, Sendable, Comparable {
-        case iPhone, iPad, iPod, headphones, keyboard, mouse, trackpad, other
+        case iPhone, iPad, iPod, watch, headphones, keyboard, mouse, trackpad, other
 
         static func < (lhs: Kind, rhs: Kind) -> Bool { lhs.rawValue < rhs.rawValue }
 
@@ -13,6 +13,7 @@ struct DeviceBattery: Identifiable, Equatable, Sendable {
             case .iPhone: return "iPhone"
             case .iPad: return "iPad"
             case .iPod: return "iPod touch"
+            case .watch: return "Apple Watch"
             case .headphones: return "ヘッドホン"
             case .keyboard: return "キーボード"
             case .mouse: return "マウス"
@@ -26,6 +27,7 @@ struct DeviceBattery: Identifiable, Equatable, Sendable {
             case .iPhone: return "iphone"
             case .iPad: return "ipad"
             case .iPod: return "ipodtouch"
+            case .watch: return "applewatch"
             case .headphones: return "airpodspro"
             case .keyboard: return "keyboard"
             case .mouse: return "magicmouse"
@@ -51,6 +53,9 @@ struct DeviceBattery: Identifiable, Equatable, Sendable {
     var isStale = false
     /// 左右・ケースなど、部位ごとの残量（AirPods など）
     var detail: String?
+    /// 同じ機器が複数の経路で届いたときの優先度（画面には出さない）。
+    /// USB の iPhone / iPad とその iPhone 経由の Apple Watch は 2、Wi-Fi は 0。
+    var priority = 0
 
     /// 一覧に出す補足（機種名・部位ごとの残量・接続の種類）
     var subtitle: String {
@@ -102,11 +107,16 @@ final class DeviceBatteryMonitor {
     private var mobile: MobileDeviceAPI?
     /// USB / Wi-Fi でつながっている機器（MobileDevice のポインタ。1 つずつ retain 済み）
     private var mobileDevices: [UnsafeMutableRawPointer] = []
-    private var mobileResults: [UnsafeMutableRawPointer: DeviceBattery] = [:]
+    /// 機器ごとの結果。iPhone の場合は、ペアリングされた Apple Watch の分も一緒に入る。
+    private var mobileResults: [UnsafeMutableRawPointer: [DeviceBattery]] = [:]
     /// 機器の識別子と接続の種類。同じ機器が別のポインタで届いても取り違えないよう、これで照合する。
     private var mobileKeys: [UnsafeMutableRawPointer: String] = [:]
     /// 最後に読めた時刻（Wi-Fi で読めない状態が続いたかの判定用）
     private var lastRead: [UnsafeMutableRawPointer: Date] = [:]
+    /// Apple Watch を最後に読めた時刻（ウォッチだけ読めない状態が続いたかの判定用）
+    private var lastWatchRead: [UnsafeMutableRawPointer: Date] = [:]
+    /// Apple Watch の名前（変わることはまずないので、一度取ったら覚えておき問い合わせを減らす）
+    private var watchNames: [String: String] = [:]
     /// 読み取り中の機器。応答の遅い機器で読み取りが積み重ならないようにする。
     private var reading: Set<UnsafeMutableRawPointer> = []
     private var bluetoothResults: [DeviceBattery] = []
@@ -144,10 +154,10 @@ final class DeviceBatteryMonitor {
         // 同じ機器が USB と Wi-Fi の両方で届くことがあるので 1 台にまとめる。
         // 優先は「USB」、次に「古い値でないほう」。辞書の順番に左右されないようにする。
         func rank(_ device: DeviceBattery) -> Int {
-            (device.connection == "USB" ? 2 : 0) + (device.isStale ? 0 : 1)
+            device.priority + (device.isStale ? 0 : 1)
         }
         var mobileByID: [String: DeviceBattery] = [:]
-        for device in mobileResults.values {
+        for device in mobileResults.values.joined() {
             if let existing = mobileByID[device.id], rank(existing) >= rank(device) { continue }
             mobileByID[device.id] = device
         }
@@ -226,6 +236,7 @@ final class DeviceBatteryMonitor {
         mobileResults[device] = nil
         mobileKeys[device] = nil
         lastRead[device] = nil
+        lastWatchRead[device] = nil
         mobile?.release(device)
     }
 
@@ -235,9 +246,16 @@ final class DeviceBatteryMonitor {
         // キューで使っている間に切断されても解放されないよう、もう 1 つ retain しておく。
         _ = api.retain(device)
         let address = UInt(bitPattern: device)
+        // 同じ iPhone が USB でもつながっていれば、Wi-Fi 側からはウォッチを読まない（同じ問い合わせを 2 回しない）。
+        var readsWatches = true
+        if let key = mobileKeys[device], key.hasSuffix("#2") {
+            let usbKey = String(key.dropLast(2)) + "#1"
+            readsWatches = !mobileDevices.contains { mobileKeys[$0] == usbKey }
+        }
+        let knownNames = watchNames
         mobileQueue.async {
             let pointer = UnsafeMutableRawPointer(bitPattern: address)!
-            let result = api.readBattery(pointer)
+            let result = api.readBattery(pointer, readsWatches: readsWatches, knownWatchNames: knownNames)
             api.release(pointer)
             Task { @MainActor in
                 let monitor = DeviceBatteryMonitor.shared
@@ -245,15 +263,35 @@ final class DeviceBatteryMonitor {
                 // 読んでいる間に外された機器の結果は捨てる。
                 guard monitor.mobileDevices.contains(pointer) else { return }
                 if let result {
-                    monitor.mobileResults[pointer] = result
+                    var list = [result.device]
+                    if let watches = result.watches {
+                        list += watches
+                        monitor.lastWatchRead[pointer] = Date()
+                        for watch in watches { monitor.watchNames[watch.id] = watch.name }
+                    } else {
+                        // ウォッチだけ読めなかったときは前回の値を残す（消えるとちらつくため）。
+                        // 読めない状態が続いたら「前回の値」と分かるようにする。
+                        let last = monitor.lastWatchRead[pointer] ?? .distantPast
+                        let stale = Date().timeIntervalSince(last) > Self.wifiStaleAfter
+                        list += (monitor.mobileResults[pointer] ?? []).filter { $0.kind == .watch }.map { watch in
+                            var watch = watch
+                            if stale { watch.isStale = true }
+                            return watch
+                        }
+                    }
+                    monitor.mobileResults[pointer] = list
                     monitor.lastRead[pointer] = Date()
-                } else if var previous = monitor.mobileResults[pointer], previous.connection == "Wi-Fi" {
+                } else if let previous = monitor.mobileResults[pointer],
+                          previous.first?.connection == "Wi-Fi" {
                     // Wi-Fi は端末のスリープ中などに一時的に読めないことがある。
                     // そのたびに消えるとちらつくので前回の値を残し、読めない状態が続いたら古い値と分かるようにする。
                     let last = monitor.lastRead[pointer] ?? .distantPast
                     if Date().timeIntervalSince(last) > Self.wifiStaleAfter {
-                        previous.isStale = true
-                        monitor.mobileResults[pointer] = previous
+                        monitor.mobileResults[pointer] = previous.map { device in
+                            var device = device
+                            device.isStale = true
+                            return device
+                        }
                     }
                 } else {
                     monitor.mobileResults[pointer] = nil
@@ -318,6 +356,31 @@ private struct MobileDeviceAPI: @unchecked Sendable {
     typealias DeviceRetain = @convention(c) (UnsafeMutableRawPointer) -> UnsafeMutableRawPointer?
     typealias CopyValue = @convention(c) (UnsafeMutableRawPointer, CFString?, CFString?) -> Unmanaged<CFTypeRef>?
     typealias CopyIdentifier = @convention(c) (UnsafeMutableRawPointer) -> Unmanaged<CFString>?
+    typealias StartService = @convention(c) (UnsafeMutableRawPointer, CFString, CFDictionary?,
+                                             UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> Int32
+    typealias SendMessage = @convention(c) (UnsafeMutableRawPointer, CFTypeRef, Int) -> Int32
+    typealias ReceiveMessage = @convention(c) (UnsafeMutableRawPointer, UnsafeMutablePointer<Unmanaged<CFTypeRef>?>,
+                                               UnsafeMutablePointer<Int>?) -> Int32
+    typealias Invalidate = @convention(c) (UnsafeMutableRawPointer) -> Void
+    typealias GetSocket = @convention(c) (UnsafeMutableRawPointer) -> Int32
+
+    /// Apple Watch を読むための関数（iPhone の companion_proxy サービス）。
+    /// 見つからなければ Apple Watch だけ読まない（iPhone や iPad は読む）。
+    struct ServiceAPI {
+        let start: StartService
+        let send: SendMessage
+        let receive: ReceiveMessage
+        let invalidate: Invalidate
+        /// 受信の時間切れを付けるために使う（無ければ時間切れなし）
+        let socket: GetSocket?
+    }
+
+    /// iPhone 本体の結果と、その iPhone 経由の Apple Watch の結果。
+    struct ReadResult {
+        var device: DeviceBattery
+        /// nil はウォッチを読めなかった（前回の値を残す）。空の配列はウォッチが無い・読まなかった。
+        var watches: [DeviceBattery]?
+    }
 
     let subscribe: Subscribe
     let connect: DeviceCall
@@ -330,6 +393,7 @@ private struct MobileDeviceAPI: @unchecked Sendable {
     let release: DeviceRelease
     let copyValue: CopyValue
     let copyIdentifier: CopyIdentifier
+    let service: ServiceAPI?
 
     static func load() -> MobileDeviceAPI? {
         let paths = ["/System/Library/PrivateFrameworks/MobileDevice.framework/MobileDevice",
@@ -351,16 +415,26 @@ private struct MobileDeviceAPI: @unchecked Sendable {
               let copyValue = symbol("AMDeviceCopyValue", as: CopyValue.self),
               let copyIdentifier = symbol("AMDeviceCopyDeviceIdentifier", as: CopyIdentifier.self)
         else { return nil }
+        var service: ServiceAPI?
+        if let start = symbol("AMDeviceSecureStartService", as: StartService.self),
+           let send = symbol("AMDServiceConnectionSendMessage", as: SendMessage.self),
+           let receive = symbol("AMDServiceConnectionReceiveMessage", as: ReceiveMessage.self),
+           let invalidate = symbol("AMDServiceConnectionInvalidate", as: Invalidate.self) {
+            service = ServiceAPI(start: start, send: send, receive: receive, invalidate: invalidate,
+                                 socket: symbol("AMDServiceConnectionGetSocket", as: GetSocket.self))
+        }
         return MobileDeviceAPI(subscribe: subscribe, connect: connect, disconnect: disconnect,
                                validatePairing: validatePairing, startSession: startSession,
                                stopSession: stopSession, interfaceType: interfaceType,
                                retain: retain, release: release, copyValue: copyValue,
-                               copyIdentifier: copyIdentifier)
+                               copyIdentifier: copyIdentifier, service: service)
     }
 
     /// 機器に接続して残量を読む。ペアリング（「このコンピュータを信頼」）済みでなければ nil。
     /// iPhone 側に確認が出てしまうため、ペアリングの要求（AMDevicePair）はしない。
-    func readBattery(_ device: UnsafeMutableRawPointer) -> DeviceBattery? {
+    /// iPhone の場合は、ペアリングされた Apple Watch の残量も一緒に返す。
+    func readBattery(_ device: UnsafeMutableRawPointer, readsWatches: Bool,
+                     knownWatchNames: [String: String]) -> ReadResult? {
         guard connect(device) == 0 else { return nil }
         defer { _ = disconnect(device) }
         guard validatePairing(device) == 0, startSession(device) == 0 else { return nil }
@@ -383,13 +457,86 @@ private struct MobileDeviceAPI: @unchecked Sendable {
         case "iPod": kind = .iPod
         default: kind = .other
         }
-        return DeviceBattery(id: "mobile-" + identifier,
-                             name: name ?? model ?? kind.genericName,
-                             model: model,
-                             kind: kind,
-                             level: min(1, max(0, Double(capacity) / 100)),
-                             isCharging: (battery["BatteryIsCharging"] as? Bool) ?? false,
-                             connection: interfaceType(device) == 1 ? "USB" : "Wi-Fi")
+        let connection = interfaceType(device) == 1 ? "USB" : "Wi-Fi"
+        let priority = connection == "USB" ? 2 : 0
+        var main = DeviceBattery(id: "mobile-" + identifier,
+                                 name: name ?? model ?? kind.genericName,
+                                 model: model,
+                                 kind: kind,
+                                 level: min(1, max(0, Double(capacity) / 100)),
+                                 isCharging: (battery["BatteryIsCharging"] as? Bool) ?? false,
+                                 connection: connection)
+        main.priority = priority
+        guard kind == .iPhone, readsWatches else { return ReadResult(device: main, watches: []) }
+        let watches = readWatches(device, knownNames: knownWatchNames)?.map { watch -> DeviceBattery in
+            var watch = watch
+            watch.priority = priority
+            return watch
+        }
+        return ReadResult(device: main, watches: watches)
+    }
+
+    /// iPhone にペアリングされた Apple Watch の残量を、iPhone の companion_proxy サービス経由で読む。
+    ///
+    /// Apple Watch は Mac と直接はつながらないが、iPhone がウォッチの情報（名前・機種・残量）を
+    /// 持っていて、このサービスから問い合わせられる（libimobiledevice の companion_proxy と同じ形式）。
+    /// 実機で `BatteryCurrentCapacity` と `BatteryIsCharging` が取れることを確認した。
+    /// 機種名（MarketingName）はウォッチでは取れないため、型番（ProductType）は使わず「Apple Watch」と出す。
+    /// 読めなかったときは nil（前回の値を残す）。
+    private func readWatches(_ device: UnsafeMutableRawPointer, knownNames: [String: String]) -> [DeviceBattery]? {
+        guard let service else { return [] }
+        // ウォッチが応答しないときに読み取りキュー全体を止めないよう、全体に締め切りを設ける。
+        let deadline = Date().addingTimeInterval(10)
+        var failed = false
+        // このサービスは 1 回答えると接続を閉じるので、問い合わせごとに接続し直す。
+        func request(_ message: [String: Any]) -> [String: Any]? {
+            guard Date() < deadline else { failed = true; return nil }
+            var connection: UnsafeMutableRawPointer?
+            guard service.start(device, "com.apple.companion_proxy" as CFString, nil, &connection) == 0,
+                  let connection else { failed = true; return nil }
+            defer {
+                service.invalidate(connection)
+                // Invalidate は通信を閉じるだけなので、接続のオブジェクト自体もここで解放する。
+                Unmanaged<AnyObject>.fromOpaque(connection).release()
+            }
+            // 応答が来ないときに止まり続けないよう、受信に 5 秒の時間切れを付ける。
+            if let socket = service.socket?(connection), socket >= 0 {
+                var timeout = timeval(tv_sec: 5, tv_usec: 0)
+                setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+            }
+            // 200 は kCFPropertyListBinaryFormat_v1_0
+            guard service.send(connection, message as CFDictionary, 200) == 0 else { failed = true; return nil }
+            var reply: Unmanaged<CFTypeRef>?
+            let status = service.receive(connection, &reply, nil)
+            // 失敗しても出力が入っていることがあるので、先に受け取って解放されるようにする。
+            let value = reply?.takeRetainedValue() as? [String: Any]
+            guard status == 0 else { failed = true; return nil }
+            return value
+        }
+        func value(_ key: String, of watch: String) -> Any? {
+            let reply = request(["Command": "GetValueFromRegistry",
+                                 "GetValueGizmoUDIDKey": watch,
+                                 "GetValueKeyKey": key])
+            return (reply?["RetrievedValueDictionary"] as? [String: Any])?[key]
+        }
+
+        guard let registry = request(["Command": "GetDeviceRegistry"]) else { return nil }
+        // ペアリングしているウォッチが無いときは "NoPairedWatches" のエラーが返る。
+        guard let watchIDs = registry["PairedDevicesArray"] as? [String] else { return [] }
+        let watches = watchIDs.compactMap { watch -> DeviceBattery? in
+            guard let capacity = value("BatteryCurrentCapacity", of: watch) as? Int else { return nil }
+            let id = "watch-" + watch
+            let name = knownNames[id] ?? value("DeviceName", of: watch) as? String
+            return DeviceBattery(id: id,
+                                 name: name ?? DeviceBattery.Kind.watch.genericName,
+                                 model: "Apple Watch",
+                                 kind: .watch,
+                                 level: min(1, max(0, Double(capacity) / 100)),
+                                 isCharging: (value("BatteryIsCharging", of: watch) as? Bool) ?? false,
+                                 connection: "iPhone 経由")
+        }
+        // 途中で通信に失敗したら、半端な結果は使わず前回の値を残す。
+        return failed ? nil : watches
     }
 }
 

@@ -62,12 +62,15 @@ xattr -dr com.apple.quarantine "/Applications/MacTaskManager.app"
 | 機器 | 読み取り方 | 条件 |
 | --- | --- | --- |
 | iPhone / iPad / iPod touch | Finder の同期と同じ仕組み（MobileDevice） | USB でつなぐか、Finder で「Wi-Fi 接続時にこのデバイスを表示」を有効にして同じネットワークにいること。機器側で一度「このコンピュータを信頼」していること |
+| Apple Watch | 上の iPhone 経由（iPhone の companion_proxy サービス） | ペアリング先の iPhone が上の条件でつながっていること |
 | AirPods など Bluetooth 機器 | `system_profiler` | 接続中の機器。未接続でも最後に記録された残量があれば「前回の値」として薄く表示 |
 
 機器名に加えて機種名（例：iPad mini (A17 Pro)）と接続の種類を表示するので、同じ種類の機器が複数あっても見分けられます。
 メーター表示では、残量が少ないほど危ない向き（0〜20% がレッドゾーン）になります。
 
-- 離れた場所にある iPhone や Apple Watch の残量（macOS の「バッテリー」ウィジェットに出るもの）は、Apple 製アプリ専用の仕組みのため読めません
+- iPhone がつながっていない場所の iPhone や Apple Watch の残量（macOS の「バッテリー」ウィジェットに出るもの）は、Apple 製アプリ専用の仕組みのため読めません
+- Apple Watch の残量は iPhone が持っている値です。ウォッチの今の残量とどれくらいずれるかは確かめていません
+- iPhone にペアリングの記録が残っている古い Apple Watch も表示されることがあります（手元にないウォッチの値は古い可能性があります）
 - Logicool などのマウス・キーボードは残量を macOS に伝えないため表示されません
 - MobileDevice は Apple が公開していない仕組みです。将来の macOS で読めなくなった場合は、カードが空になるだけでアプリは止まりません
 - スクリーンショットの書き出しでは、機器名（本名が入りやすい）を機種名や一般名に置き換えます

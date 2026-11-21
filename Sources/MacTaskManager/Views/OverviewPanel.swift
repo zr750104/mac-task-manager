@@ -259,8 +259,8 @@ struct OverviewPanel: View {
             value: devices.isEmpty ? "—" : "接続 \(liveCount) 台",
             details: [],
             caption: devices.isEmpty
-                ? "iPhone・iPad（USB / Wi-Fi）や AirPods などを表示します"
-                : "iPhone・iPad（USB / Wi-Fi）と Bluetooth 機器 · 30 秒ごとに更新",
+                ? "iPhone・iPad（USB / Wi-Fi）や Apple Watch、AirPods などを表示します"
+                : "iPhone・iPad・Apple Watch と Bluetooth 機器 · 30 秒ごとに更新",
             content: AnyView(deviceList(devices)),
             meterContent: AnyView(deviceGauges(devices))))
 
