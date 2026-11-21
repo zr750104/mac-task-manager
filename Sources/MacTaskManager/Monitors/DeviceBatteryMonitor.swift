@@ -100,6 +100,8 @@ final class DeviceBatteryMonitor {
     private static let pollInterval: TimeInterval = 30
     /// Wi-Fi の機器がこの時間読めなかったら「前回の値」として扱う。
     private static let wifiStaleAfter: TimeInterval = 90
+    /// Apple Watch は iPhone へ何度もサービス接続を張るうえ、残量はゆっくりしか変わらないので間引く。
+    private static let watchInterval: TimeInterval = 180
 
     /// iPhone などの読み取りと Bluetooth の読み取りは、片方が詰まってももう片方が止まらないよう別のキューにする。
     private let mobileQueue = DispatchQueue(label: "DeviceBatteryMonitor.mobile", qos: .utility)
@@ -252,6 +254,10 @@ final class DeviceBatteryMonitor {
             let usbKey = String(key.dropLast(2)) + "#1"
             readsWatches = !mobileDevices.contains { mobileKeys[$0] == usbKey }
         }
+        // 前回ウォッチを読んでから間もなければ、今回はウォッチを読まずに前回の値をそのまま使う。
+        let watchDue = Date().timeIntervalSince(lastWatchRead[device] ?? .distantPast) >= Self.watchInterval
+        let skipsWatchesForNow = readsWatches && !watchDue
+        if skipsWatchesForNow { readsWatches = false }
         let knownNames = watchNames
         mobileQueue.async {
             let pointer = UnsafeMutableRawPointer(bitPattern: address)!
@@ -264,16 +270,22 @@ final class DeviceBatteryMonitor {
                 guard monitor.mobileDevices.contains(pointer) else { return }
                 if let result {
                     var list = [result.device]
-                    if let watches = result.watches {
+                    let previousWatches = (monitor.mobileResults[pointer] ?? []).filter { $0.kind == .watch }
+                    if skipsWatchesForNow {
+                        list += previousWatches
+                    } else if let watches = result.watches {
                         list += watches
                         monitor.lastWatchRead[pointer] = Date()
-                        for watch in watches { monitor.watchNames[watch.id] = watch.name }
+                        // 本当の名前が取れたときだけ覚える（代わりの「Apple Watch」は覚えない）。
+                        for watch in watches where watch.name != DeviceBattery.Kind.watch.genericName {
+                            monitor.watchNames[watch.id] = watch.name
+                        }
                     } else {
                         // ウォッチだけ読めなかったときは前回の値を残す（消えるとちらつくため）。
                         // 読めない状態が続いたら「前回の値」と分かるようにする。
                         let last = monitor.lastWatchRead[pointer] ?? .distantPast
-                        let stale = Date().timeIntervalSince(last) > Self.wifiStaleAfter
-                        list += (monitor.mobileResults[pointer] ?? []).filter { $0.kind == .watch }.map { watch in
+                        let stale = Date().timeIntervalSince(last) > Self.watchInterval + Self.wifiStaleAfter
+                        list += previousWatches.map { watch in
                             var watch = watch
                             if stale { watch.isStale = true }
                             return watch

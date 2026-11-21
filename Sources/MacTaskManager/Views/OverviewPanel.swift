@@ -405,7 +405,7 @@ struct OverviewPanel: View {
         // カードの高さに入る行数だけ出す（1 行はおよそ 22pt）。全体の台数はカード右上に出ている。
         GeometryReader { geometry in
             let rowHeight: CGFloat = 22
-            let fits = max(1, min(4, Int((geometry.size.height + 3) / rowHeight)))
+            let fits = max(1, Int((geometry.size.height + 3) / rowHeight))
             let shown = min(devices.count, fits)
             let showsMore = devices.count > shown
                 && CGFloat(shown) * rowHeight + 12 <= geometry.size.height
@@ -470,9 +470,12 @@ struct OverviewPanel: View {
 
     /// メーター表示。残量は少ないほど危ないので、0〜20% をレッドゾーンにする。
     /// 枠は位置で識別し、機器が増減してもメーターを作り直さない。
+    /// 枠は 4 つを基本に、台数に合わせて最大 6 つまで増やす。それより多い分は件数だけ出す。
     private func deviceGauges(_ devices: [DeviceBattery]) -> some View {
+        let slots = min(6, max(4, devices.count))
+        return VStack(spacing: 1) {
         HStack(spacing: 4) {
-            ForEach(0..<4, id: \.self) { slot in
+            ForEach(0..<slots, id: \.self) { slot in
                 let device = slot < devices.count ? devices[slot] : nil
                 VStack(spacing: 1) {
                     MetricGauge(ratio: device?.level ?? 0, color: Palette.disk, redline: 0.2,
@@ -512,6 +515,13 @@ struct OverviewPanel: View {
                 .frame(maxWidth: .infinity)
                 .opacity(device?.isStale == true ? 0.5 : 1)
             }
+        }
+        if devices.count > slots {
+            Text("ほか \(devices.count - slots) 台")
+                .font(.system(size: 8))
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
         }
     }
 
