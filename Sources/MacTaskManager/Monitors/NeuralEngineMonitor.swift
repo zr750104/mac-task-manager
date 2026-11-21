@@ -25,9 +25,9 @@ struct NeuralEngineSample: Sendable {
 /// Apple は GPU の "Device Utilization %" に相当する **ANE の使用率を公開していない**
 /// （`powermetrics` を root で動かしても電力しか出ない）。
 /// そこで実機で Vision の画像分類を回して反応するチャンネルを調べ、
-/// 次の 2 つが確実に動くことを確認したうえで指標にしている:
+/// 次の 2 つが反応することを確認した（macOS 26 時点）:
 ///
-/// - `Energy Model` の `ANE`（消費電力）: アイドル 0.000W → 負荷時 2.0W
+/// - `Energy Model` の `ANE`（消費電力）: アイドル 0.000W → 負荷時 2.0W（macOS 27 では負荷中も 0）
 /// - `Interrupt Statistics (by index)` の `ane 0` 割り込み回数: 8 秒あたり 3 回 → 9,642 回
 ///
 /// 使用率は **推論リクエスト/秒（割り込み回数）を基準の回数で割って**求めている。
@@ -128,8 +128,9 @@ final class NeuralEngineMonitor {
         // 使用率は割り込み回数から出すので、それが読めなければ「取得できない」扱いにする（0% と区別する）。
         result.available = !isUnavailable && Self.api != nil
 
-        // 「基準を戻す」で保存値が消されていたら、既定値に戻す（超過 1 回目の記録も消す）。
-        if UserDefaults.standard.object(forKey: Self.referenceKey) == nil, !reference.isPristine {
+        // 「基準を戻す」で保存値が消されていたら、既定値に戻す。
+        // 既定値のときは作り直さない（作り直すと超過 1 回目の記録が消え、基準が一度も上がらなくなる）。
+        if UserDefaults.standard.object(forKey: Self.referenceKey) == nil, !reference.isDefault {
             reference = NeuralEngineReference(storedRate: nil)
         }
         if result.available, reference.observe(result.operationsPerSecond) {
@@ -208,8 +209,7 @@ struct NeuralEngineReference {
         }
     }
 
-    /// 既定値のままで、超過の記録も無い（作り直す必要がない）
-    var isPristine: Bool { rate == Self.defaultRate && pending == nil }
+    var isDefault: Bool { rate == Self.defaultRate }
 
     /// 新しい計測値を見て、必要なら基準を引き上げる。引き上げたら true。
     /// 基準を超える値が 2 回続いたら低いほうまで上げる。1 回に上げるのは今の基準の 2 倍まで。

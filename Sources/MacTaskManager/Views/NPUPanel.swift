@@ -31,7 +31,7 @@ struct NPUPanel: View {
                           caption: "推論が動いているか",
                           color: ane.isActive ? Palette.efficiencyCore : .primary, emphasized: true),
                     .init("消費電力", String(format: "%.2f W", ane.watts),
-                          caption: "動いていなければ 0 に近い値",
+                          caption: "macOS 27 では負荷中も 0 W と報告されます",
                           color: Palette.efficiencyCore, emphasized: true),
                     .init("推論リクエスト/秒", Fmt.count(Int(ane.operationsPerSecond)),
                           caption: "ANE からの割り込み回数", emphasized: true)
