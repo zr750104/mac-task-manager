@@ -98,6 +98,7 @@ final class PowerMonitor {
               let list = dictionary["IOReportChannels"] as? [CFDictionary] else { return result }
 
         var watts: [String: Double] = [:]
+        var discardedNeuralEngine = false
         for channel in list {
             // Get 系は +0 で返るため takeUnretainedValue を使う（Retained だと過剰解放になる）。
             let name = api.channelName(channel)?.takeUnretainedValue() as String? ?? ""
@@ -115,7 +116,17 @@ final class PowerMonitor {
             case "j": joules = Double(raw)
             default: continue
             }
-            watts[name] = joules / elapsed
+            let value = joules / elapsed
+            // カウンタの不整合などで出たありえない値は捨てる。
+            // - 1 項目で 500 W を超えることは Mac ではありえない（最上位のチップでも全体で 300 W 前後）
+            // - Neural Engine（ANE）だけで 20 W を超えることもない
+            //   （以前、一瞬の 126 W が NPU 使用率の基準として保存されてしまった）
+            let limit = name.hasPrefix("ANE") ? NeuralEngineMonitor.plausibleMaxWatts : 500
+            guard value <= limit else {
+                if name.hasPrefix("ANE") { discardedNeuralEngine = true }
+                continue
+            }
+            watts[name] = value
         }
         guard !watts.isEmpty else { return result }
 
@@ -126,7 +137,8 @@ final class PowerMonitor {
         // "GPU Energy" は nJ 単位で桁溢れすることがあるため mJ の "GPU" を優先する。
         result.gpu = watts["GPU"] ?? watts["GPU Energy"] ?? 0
         result.dram = watts["DRAM"] ?? 0
-        result.neuralEngine = watts["ANE"] ?? watts["ANE Energy"] ?? 0
+        // ANE の値を捨てた回は、もう一方の名前の値を使わず 0 にする（片方だけ捨てて食い違うのを避ける）。
+        result.neuralEngine = discardedNeuralEngine ? 0 : (watts["ANE"] ?? watts["ANE Energy"] ?? 0)
 
         let known: Set<String> = ["PCPU", "ECPU", "CPU Energy", "GPU", "GPU Energy",
                                   "DRAM", "ANE", "ANE Energy"]

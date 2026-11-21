@@ -84,10 +84,23 @@ final class NeuralEngineMonitor {
     private static let defaultReferenceWatts: Double = 2.0
     private static let referenceKey = "neuralEngineReferenceWatts"
 
+    /// ANE の消費電力として考えられる上限（W）。
+    /// 最上位のチップでも ANE だけでこれを超えることはないため、超えた値は計測の誤りとみなす。
+    /// （以前、一瞬だけ 126 W と出た値が基準として保存され、使用率がほぼ 0% のままになっていた）
+    static let plausibleMaxWatts: Double = 20
+
     private var referenceWatts: Double = {
         let stored = UserDefaults.standard.double(forKey: NeuralEngineMonitor.referenceKey)
+        // 以前の版で保存されたありえない基準は、ここで既定値に戻す。
+        if !stored.isFinite || stored > NeuralEngineMonitor.plausibleMaxWatts {
+            UserDefaults.standard.removeObject(forKey: NeuralEngineMonitor.referenceKey)
+            return NeuralEngineMonitor.defaultReferenceWatts
+        }
         return max(stored, NeuralEngineMonitor.defaultReferenceWatts)
     }()
+
+    /// 直前の計測で基準を超えた値。一瞬の跳ね上がりで基準を上げないよう、2 回続いたときだけ採用する。
+    private var pendingPeak: Double?
 
     /// 使用率の基準を実測の既定値に戻す。
     /// 計測は別スレッド（Sampler）で動くので、ここでは保存値を消すだけにして、
@@ -99,7 +112,10 @@ final class NeuralEngineMonitor {
     /// - Parameter watts: PowerMonitor が取得した ANE の消費電力
     func sample(watts: Double) -> NeuralEngineSample {
         var result = NeuralEngineSample()
-        result.watts = max(0, watts)
+        // ありえない値（計測の誤り）は PowerMonitor で 0 にしてあるが、念のためここでも捨てる。
+        // 捨てた回は 0 W として扱い、基準の判定にも使わない。
+        let isValid = watts.isFinite && watts >= 0 && watts <= Self.plausibleMaxWatts
+        result.watts = isValid ? watts : 0
 
         if !isUnavailable, let api = Self.api {
             if subscription == nil, !connect(api) {
@@ -117,10 +133,19 @@ final class NeuralEngineMonitor {
            referenceWatts > Self.defaultReferenceWatts {
             referenceWatts = Self.defaultReferenceWatts
         }
-        // 基準を超える電力を観測したら、そこまで引き上げて記憶する。
-        if result.watts > referenceWatts {
-            referenceWatts = result.watts
-            UserDefaults.standard.set(referenceWatts, forKey: Self.referenceKey)
+        // 基準を超える電力が 2 回続けて出たら、低いほうの値まで基準を引き上げて記憶する。
+        // 1 回だけの跳ね上がりは計測の揺れとみなして採用しない。
+        // 誤りが続いても基準が一気に跳ね上がらないよう、1 回に上げるのは今の基準の 2 倍までにする。
+        if isValid, result.watts > referenceWatts {
+            if let pending = pendingPeak {
+                referenceWatts = min(pending, result.watts, referenceWatts * 2)
+                UserDefaults.standard.set(referenceWatts, forKey: Self.referenceKey)
+                pendingPeak = nil
+            } else {
+                pendingPeak = result.watts
+            }
+        } else {
+            pendingPeak = nil
         }
         result.referencePeak = referenceWatts
         result.utilization = referenceWatts > 0 ? min(1, result.watts / referenceWatts) : 0
