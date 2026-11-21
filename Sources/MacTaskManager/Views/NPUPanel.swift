@@ -15,7 +15,7 @@ struct NPUPanel: View {
             VStack(alignment: .leading, spacing: 14) {
                 PanelHeader(title: "NPU（Neural Engine）",
                             subtitle: "\(engine.info.chipName) の機械学習用アクセラレータ",
-                            value: Fmt.percent(ane.utilization),
+                            value: ane.available ? Fmt.percent(ane.utilization) : "—",
                             valueColor: ane.isActive ? Palette.efficiencyCore : .secondary)
 
                 // CPU / GPU と同じく 0〜100% の目盛りで推移を出す。
@@ -24,8 +24,8 @@ struct NPUPanel: View {
                     .frame(height: 170)
 
                 TileGrid(items: [
-                    .init("使用率", Fmt.percent(ane.utilization),
-                          caption: String(format: "基準 %.2f W に対する比率", ane.referencePeak),
+                    .init("使用率", ane.available ? Fmt.percent(ane.utilization) : "—",
+                          caption: "推論 \(Fmt.count(Int(ane.referenceRate))) 回/秒を 100% とした比率",
                           color: Palette.efficiencyCore, emphasized: true),
                     .init("状態", ane.stateLabel,
                           caption: "推論が動いているか",
@@ -45,7 +45,8 @@ struct NPUPanel: View {
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                     VStack(spacing: 8) {
-                        comparisonBar("NPU（機械学習）", ane.utilization, Palette.efficiencyCore)
+                        comparisonBar("NPU（機械学習）", ane.available ? ane.utilization : 0,
+                                      Palette.efficiencyCore)
                         comparisonBar("GPU（グラフィックス）",
                                       gpu.available ? gpu.utilization : 0, Palette.gpu)
                     }
@@ -82,14 +83,16 @@ struct NPUPanel: View {
                     NeuralEngineMonitor.resetReference()
                 }
                 .controlSize(.small)
-                .help("使用率の基準を実測の既定値 2.0 W に戻します")
+                .help("使用率の基準を実測の既定値（推論 \(Fmt.count(Int(NeuralEngineReference.defaultRate))) 回/秒）に戻します")
             }
             Text("""
             Apple は GPU の「デバイス使用率」に相当する NPU の稼働率を公開していません（root で powermetrics を動かしても電力しか出ず、IOReport にも動作周波数ごとの滞留時間は含まれていません）。
 
-            そのため使用率は「消費電力 ÷ 基準電力」で算出しています。基準の 2.0 W は、この Mac で Vision の画像分類を 8 スレッド並列で回したときの実測ピークです。これを超える電力を観測した場合は基準を自動で引き上げ、次回起動時も引き継ぎます。
+            そのため使用率は「推論リクエスト/秒（NPU からの割り込み回数）÷ 基準の回数」で算出しています。基準の 1,200 回/秒は、この Mac で Vision の画像分類を 8 スレッド並列で回したときの実測です。これを超える回数が 2 回続けて出た場合は基準を自動で引き上げ（1 回に 2 倍まで）、次回起動時も引き継ぎます。
 
-            ハードウェアが報告する稼働率そのものではありませんが、CPU 使用率と同じ感覚で読める値になります。
+            以前は消費電力から算出していましたが、macOS 27 では NPU の消費電力が負荷中も 0 W と報告されるため、推論の回数に切り替えました。
+
+            これはハードウェアが報告する稼働率そのものではなく、推論の処理回数です。軽い推論を 1 本動かすだけでも高めに出ます。反対に、1 回の推論が重いモデルでは、NPU がフルに動いていても低めに出ることがあります。
             """)
                 .font(.caption)
                 .foregroundStyle(.secondary)

@@ -6,13 +6,16 @@ struct NeuralEngineSample: Sendable {
     var watts: Double = 0
     /// ANE からの割り込み回数（毎秒）。推論の実行回数の目安になる。
     var operationsPerSecond: Double = 0
-    /// 使用率の分母に使う基準電力（W）
-    var referencePeak: Double = 0
-    /// 基準電力に対する比率（0〜1）。CPU 使用率と同じ感覚で読める値。
+    /// 使用率の分母に使う基準（推論リクエスト/秒）
+    var referenceRate: Double = 0
+    /// 基準に対する推論リクエスト/秒の比率（0〜1）。CPU 使用率と同じ感覚で読める値。
     var utilization: Double = 0
 
-    /// 目に見えるレベルで動いているか
-    var isActive: Bool { watts > 0.02 || operationsPerSecond > 1 }
+    /// 目に見えるレベルで動いているか。
+    /// 使用率が 1% 未満（0% と表示される）なのに「動作中」と出ないよう、基準の 1% をしきい値にする。
+    var isActive: Bool {
+        available && (watts > 0.02 || operationsPerSecond >= max(1, referenceRate * 0.01))
+    }
 
     var stateLabel: String { isActive ? "動作中" : "待機中" }
 }
@@ -27,8 +30,14 @@ struct NeuralEngineSample: Sendable {
 /// - `Energy Model` の `ANE`（消費電力）: アイドル 0.000W → 負荷時 2.0W
 /// - `Interrupt Statistics (by index)` の `ane 0` 割り込み回数: 8 秒あたり 3 回 → 9,642 回
 ///
-/// 使用率は消費電力を基準電力で割って求めている。ハードウェアが報告する
-/// 稼働率そのものではないが、CPU 使用率と同じ感覚で読める値になる。
+/// 使用率は **推論リクエスト/秒（割り込み回数）を基準の回数で割って**求めている。
+/// 以前は消費電力を基準電力で割っていたが、macOS 27 では `Energy Model` の ANE が
+/// 負荷をかけても常に 0 になり（2026-11 実測）、使用率が 0% のまま動かなくなったため切り替えた。
+/// 割り込み回数は macOS 27 でも動く（待機中 0 回/秒 → 8 並列の画像分類で約 1,000〜1,500 回/秒）。
+///
+/// ハードウェアが報告する稼働率そのものではなく**推論の処理回数**なので、
+/// 軽い推論を 1 本回すだけでも高めに出る（1 並列で約 950 回/秒）。
+/// 逆に 1 回の推論が重いモデルは、NPU がフルに動いていても低めに出ることがある。
 ///
 /// なお **GPU 使用率は NPU の使用率ではない**。実測でも NPU を全力で回している間、
 /// GPU 使用率は 22.3% → 25.2% とほぼ動かなかった（GPU と ANE は別のハードウェア）。
@@ -78,29 +87,24 @@ final class NeuralEngineMonitor {
     private var previousTime: Date?
     private var isUnavailable = false
 
-    /// 使用率の分母。M4 Mac mini で Vision の画像分類を 8 スレッド並列で回したときの
-    /// 実測ピークが 2.0 W だったので、これを既定値にしている。
-    /// より重い推論でこれを超えたら基準を引き上げ、次回起動時も引き継ぐ。
-    private static let defaultReferenceWatts: Double = 2.0
-    private static let referenceKey = "neuralEngineReferenceWatts"
-
-    /// ANE の消費電力として考えられる上限（W）。
-    /// 最上位のチップでも ANE だけでこれを超えることはないため、超えた値は計測の誤りとみなす。
-    /// （以前、一瞬だけ 126 W と出た値が基準として保存され、使用率がほぼ 0% のままになっていた）
+    /// ANE の消費電力として考えられる上限（W）。電力の表示で、これを超える値は計測の誤りとして捨てる
+    /// （以前、一瞬だけ 126 W と出た値が使用率の基準として保存され、使用率がほぼ 0% のままになっていた）。
     static let plausibleMaxWatts: Double = 20
 
-    private var referenceWatts: Double = {
-        let stored = UserDefaults.standard.double(forKey: NeuralEngineMonitor.referenceKey)
-        // 以前の版で保存されたありえない基準は、ここで既定値に戻す。
-        if !stored.isFinite || stored > NeuralEngineMonitor.plausibleMaxWatts {
-            UserDefaults.standard.removeObject(forKey: NeuralEngineMonitor.referenceKey)
-            return NeuralEngineMonitor.defaultReferenceWatts
-        }
-        return max(stored, NeuralEngineMonitor.defaultReferenceWatts)
-    }()
+    private static let referenceKey = "neuralEngineReferenceRate"
+    /// 電力を基準にしていた頃の保存キー。もう使わないので消す。
+    private static let legacyReferenceKey = "neuralEngineReferenceWatts"
 
-    /// 直前の計測で基準を超えた値。一瞬の跳ね上がりで基準を上げないよう、2 回続いたときだけ採用する。
-    private var pendingPeak: Double?
+    private var reference = NeuralEngineReference(
+        storedRate: UserDefaults.standard.object(forKey: NeuralEngineMonitor.referenceKey) as? Double)
+
+    init() {
+        UserDefaults.standard.removeObject(forKey: Self.legacyReferenceKey)
+        if reference.rate != (UserDefaults.standard.object(forKey: Self.referenceKey) as? Double) {
+            // 壊れた保存値を既定値に戻した場合など。保存値と揃えておく。
+            UserDefaults.standard.removeObject(forKey: Self.referenceKey)
+        }
+    }
 
     /// 使用率の基準を実測の既定値に戻す。
     /// 計測は別スレッド（Sampler）で動くので、ここでは保存値を消すだけにして、
@@ -109,13 +113,10 @@ final class NeuralEngineMonitor {
         UserDefaults.standard.removeObject(forKey: referenceKey)
     }
 
-    /// - Parameter watts: PowerMonitor が取得した ANE の消費電力
+    /// - Parameter watts: PowerMonitor が取得した ANE の消費電力（表示用。使用率の計算には使わない）
     func sample(watts: Double) -> NeuralEngineSample {
         var result = NeuralEngineSample()
-        // ありえない値（計測の誤り）は PowerMonitor で 0 にしてあるが、念のためここでも捨てる。
-        // 捨てた回は 0 W として扱い、基準の判定にも使わない。
-        let isValid = watts.isFinite && watts >= 0 && watts <= Self.plausibleMaxWatts
-        result.watts = isValid ? watts : 0
+        result.watts = watts.isFinite && watts >= 0 && watts <= Self.plausibleMaxWatts ? watts : 0
 
         if !isUnavailable, let api = Self.api {
             if subscription == nil, !connect(api) {
@@ -124,31 +125,18 @@ final class NeuralEngineMonitor {
                 result.operationsPerSecond = interruptRate(api)
             }
         }
+        // 使用率は割り込み回数から出すので、それが読めなければ「取得できない」扱いにする（0% と区別する）。
+        result.available = !isUnavailable && Self.api != nil
 
-        // 電力が取れていれば ANE の情報として意味がある。
-        result.available = watts > 0 || result.operationsPerSecond > 0 || !isUnavailable
-
-        // 「基準を戻す」で保存値が消されていたら、既定値に戻す。
-        if UserDefaults.standard.object(forKey: Self.referenceKey) == nil,
-           referenceWatts > Self.defaultReferenceWatts {
-            referenceWatts = Self.defaultReferenceWatts
+        // 「基準を戻す」で保存値が消されていたら、既定値に戻す（超過 1 回目の記録も消す）。
+        if UserDefaults.standard.object(forKey: Self.referenceKey) == nil, !reference.isPristine {
+            reference = NeuralEngineReference(storedRate: nil)
         }
-        // 基準を超える電力が 2 回続けて出たら、低いほうの値まで基準を引き上げて記憶する。
-        // 1 回だけの跳ね上がりは計測の揺れとみなして採用しない。
-        // 誤りが続いても基準が一気に跳ね上がらないよう、1 回に上げるのは今の基準の 2 倍までにする。
-        if isValid, result.watts > referenceWatts {
-            if let pending = pendingPeak {
-                referenceWatts = min(pending, result.watts, referenceWatts * 2)
-                UserDefaults.standard.set(referenceWatts, forKey: Self.referenceKey)
-                pendingPeak = nil
-            } else {
-                pendingPeak = result.watts
-            }
-        } else {
-            pendingPeak = nil
+        if result.available, reference.observe(result.operationsPerSecond) {
+            UserDefaults.standard.set(reference.rate, forKey: Self.referenceKey)
         }
-        result.referencePeak = referenceWatts
-        result.utilization = referenceWatts > 0 ? min(1, result.watts / referenceWatts) : 0
+        result.referenceRate = reference.rate
+        result.utilization = result.available ? reference.utilization(of: result.operationsPerSecond) : 0
         return result
     }
 
@@ -187,8 +175,62 @@ final class NeuralEngineMonitor {
         var subscribed: Unmanaged<CFMutableDictionary>?
         guard let newSubscription = api.createSubscription(nil, group, &subscribed, 0, nil),
               let subscribedChannels = subscribed?.takeRetainedValue() else { return false }
+        // チャンネルが 1 つも無い機種では、購読できても回数は取れないので「取得できない」扱いにする。
+        let list = (subscribedChannels as NSDictionary)["IOReportChannels"] as? [Any] ?? []
+        guard !list.isEmpty else { return false }
         subscription = newSubscription
         channels = subscribedChannels
         return true
+    }
+}
+
+/// 推論リクエスト/秒から使用率を出すための基準。試験しやすいよう計測から切り離している。
+struct NeuralEngineReference {
+    /// 既定の基準（回/秒）。M4 Mac mini で Vision の画像分類を 8 スレッド並列で回したときの
+    /// 実測（約 1,000〜1,500 回/秒、平均でおよそ 1,200 回/秒）。
+    static let defaultRate: Double = 1_200
+    /// これを超える回数は計測の誤りとみなす（実測の 100 倍以上）。
+    static let plausibleMaxRate: Double = 200_000
+    /// 基準を自動で上げる上限（既定の 10 倍）。処理回数の多い軽いモデルを回したあと、
+    /// 基準が上がりすぎて普段の推論がほとんど 0% に見えるのを防ぐ。
+    static let maxReferenceRate: Double = defaultRate * 10
+
+    private(set) var rate: Double
+    /// 直前の計測で基準を超えた値。一瞬の跳ね上がりで基準を上げないよう、2 回続いたときだけ採用する。
+    private var pending: Double?
+
+    init(storedRate: Double?) {
+        if let storedRate, storedRate.isFinite,
+           storedRate >= Self.defaultRate, storedRate <= Self.maxReferenceRate {
+            rate = storedRate
+        } else {
+            rate = Self.defaultRate
+        }
+    }
+
+    /// 既定値のままで、超過の記録も無い（作り直す必要がない）
+    var isPristine: Bool { rate == Self.defaultRate && pending == nil }
+
+    /// 新しい計測値を見て、必要なら基準を引き上げる。引き上げたら true。
+    /// 基準を超える値が 2 回続いたら低いほうまで上げる。1 回に上げるのは今の基準の 2 倍まで。
+    mutating func observe(_ value: Double) -> Bool {
+        guard value.isFinite, value >= 0, value <= Self.plausibleMaxRate, value > rate,
+              rate < Self.maxReferenceRate else {
+            pending = nil
+            return false
+        }
+        guard let previous = pending else {
+            pending = value
+            return false
+        }
+        rate = min(previous, value, rate * 2, Self.maxReferenceRate)
+        pending = nil
+        return true
+    }
+
+    func utilization(of value: Double) -> Double {
+        // ありえない値（計測の誤り）は 100% に張り付かせず、0% として扱う。
+        guard value.isFinite, value > 0, value <= Self.plausibleMaxRate, rate > 0 else { return 0 }
+        return min(1, value / rate)
     }
 }

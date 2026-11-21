@@ -178,15 +178,15 @@ struct OverviewPanel: View {
         let ane = snapshot.neuralEngine
         list.append(Card(
             panel: .npu, title: "NPU (Neural Engine)", icon: "brain", color: Palette.efficiencyCore,
-            value: Fmt.percent(ane.utilization),
+            value: ane.available ? Fmt.percent(ane.utilization) : "—",
             details: [("状態", ane.stateLabel),
                       ("消費電力", String(format: "%.2fW", ane.watts)),
                       ("推論/秒", Fmt.count(Int(ane.operationsPerSecond)))],
-            caption: String(format: "基準 %.2f W に対する比率 · GPU 使用率とは別物です", ane.referencePeak),
+            caption: "推論 \(Fmt.count(Int(ane.referenceRate))) 回/秒を 100% とした比率 · GPU 使用率とは別物です",
             content: AnyView(MetricChart(values: engine.neuralEngineUtilizationHistory.padded,
                                          maxValue: 1, color: Palette.efficiencyCore,
                                          gridRows: 2, gridColumns: 4)),
-            gauge: GaugeSpec(ratio: ane.utilization)))
+            gauge: GaugeSpec(ratio: ane.utilization, available: ane.available)))
 
         // ディスク
         let disk = snapshot.disk

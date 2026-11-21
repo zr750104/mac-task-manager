@@ -222,7 +222,9 @@ private struct SidebarRow: View {
         case .memory:
             return "\(Fmt.bytes(snapshot.memory.used)) / \(Fmt.bytes(snapshot.memory.total))"
         case .gpu: return snapshot.gpu.available ? Fmt.percent(snapshot.gpu.utilization, decimals: 0) : "—"
-        case .npu: return Fmt.percent(snapshot.neuralEngine.utilization, decimals: 0)
+        case .npu:
+            return snapshot.neuralEngine.available
+                ? Fmt.percent(snapshot.neuralEngine.utilization, decimals: 0) : "—"
         case .temperature:
             return engine.temperature.available
                 ? String(format: "%.1f ℃", engine.temperature.socMax) : "—"
