@@ -64,21 +64,14 @@ struct OverviewPanel: View {
             VStack(alignment: .leading, spacing: spacing) {
                 header.frame(height: headerHeight - spacing)
                 // 最後の行が埋まらないとき、最後のカード（デバイスのバッテリー）を空いた枠まで広げる。
-                // LazyVGrid では 1 枚だけ複数の列にまたがらせられないので、行ごとに並べている。
-                let cellWidth = max(0, (geometry.size.width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
-                let numbered = Array(cards.enumerated())
-                let grid = VStack(alignment: .leading, spacing: spacing) {
-                    ForEach(0..<rows, id: \.self) { row in
-                        let rowCards = Array(numbered[(row * columns)..<min((row + 1) * columns, numbered.count)])
-                        HStack(spacing: spacing) {
-                            ForEach(rowCards, id: \.element.id) { index, card in
-                                let span = index == cards.count - 1 && card.expandsToFill
-                                    ? columns - (rowCards.count - 1) : 1
-                                OverviewCard(index: index, color: card.color) {
-                                    cardView(card, index: index, height: cardHeight)
-                                }
-                                .frame(width: cellWidth * CGFloat(span) + spacing * CGFloat(span - 1))
-                            }
+                // LazyVGrid では 1 枚だけ複数の列にまたがらせられないので、自前のレイアウトで並べる。
+                // カードは 1 つの ForEach のまま並べるので、列数が変わっても作り直されない。
+                // 幅はレイアウトに実際に渡された幅を使うので、スクロールバーが出ていてもはみ出さない。
+                let grid = OverviewGridLayout(columns: columns, spacing: spacing, rowHeight: cardHeight,
+                                              expandsLast: cards.last?.expandsToFill == true) {
+                    ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
+                        OverviewCard(index: index, color: card.color) {
+                            cardView(card, index: index, height: cardHeight)
                         }
                     }
                 }
@@ -291,6 +284,7 @@ struct OverviewPanel: View {
             meterContent: AnyView(deviceGauges(devices)),
             expandsToFill: true))
 
+        // 「デバイスのバッテリー」は最後の行の空いた枠まで広げるので、ここより後ろにカードを足さないこと。
         return list
     }
 
@@ -732,6 +726,36 @@ extension OverviewPanel {
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// 概要のカードを並べるレイアウト。列ごとに同じ幅で並べ、
+/// 最後の行が埋まらないときは最後のカードを空いた列ぶん横に広げる。
+private struct OverviewGridLayout: Layout {
+    var columns: Int
+    var spacing: CGFloat
+    var rowHeight: CGFloat
+    var expandsLast: Bool
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = max(1, Int(ceil(Double(subviews.count) / Double(max(1, columns)))))
+        return CGSize(width: proposal.width ?? 0,
+                      height: CGFloat(rows) * rowHeight + CGFloat(rows - 1) * spacing)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let columns = max(1, columns)
+        let cellWidth = max(0, (bounds.width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
+        for (index, subview) in subviews.enumerated() {
+            let row = index / columns
+            let column = index % columns
+            let span = expandsLast && index == subviews.count - 1 ? columns - column : 1
+            let width = cellWidth * CGFloat(span) + spacing * CGFloat(span - 1)
+            subview.place(at: CGPoint(x: bounds.minX + CGFloat(column) * (cellWidth + spacing),
+                                      y: bounds.minY + CGFloat(row) * (rowHeight + spacing)),
+                          anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: rowHeight))
         }
     }
 }
