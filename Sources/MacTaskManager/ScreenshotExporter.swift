@@ -48,6 +48,11 @@ enum ScreenshotExporter {
             await engine.refreshProcessesNow()
             await engine.refreshStartupNow()
 
+            // 利用者がメーター表示を選んでいても、各画面の 1 枚目はグラフ表示で撮る。
+            let defaults = UserDefaults.standard
+            let savedStyle = defaults.string(forKey: OverviewStyle.storageKey)
+            defaults.set(OverviewStyle.chart.rawValue, forKey: OverviewStyle.storageKey)
+
             for panel in Panel.allCases {
                 settings.selection = panel
                 // 画面切り替えと再描画が終わるのを待つ。
@@ -61,23 +66,16 @@ enum ScreenshotExporter {
             }
 
             // 概要のメーター表示。利用者の設定は書き出しのあとで元に戻す。
-            let defaults = UserDefaults.standard
-            let savedStyle = defaults.string(forKey: OverviewStyle.storageKey)
             settings.selection = .overview
             defaults.set(OverviewStyle.meter.rawValue, forKey: OverviewStyle.storageKey)
             // 振り切りの演出が終わるのを待つ。
             try? await Task.sleep(for: .seconds(3))
             _ = capture(window: window,
                         to: directory.appendingPathComponent("overview-meter.png"))
-            if let savedStyle {
-                defaults.set(savedStyle, forKey: OverviewStyle.storageKey)
-            } else {
-                defaults.removeObject(forKey: OverviewStyle.storageKey)
-            }
-
-            // 小さくしたときの表示も 1 枚残す。
+            // 小さくしたときの表示はグラフ表示で 1 枚残す。
             // カードが途中で切れないよう、11 枚が 2 列 6 行で収まる大きさにしている。
             settings.selection = .overview
+            defaults.set(OverviewStyle.chart.rawValue, forKey: OverviewStyle.storageKey)
             window.setContentSize(NSSize(width: 660, height: 760))
             try? await Task.sleep(for: .seconds(2))
             _ = capture(window: window,
